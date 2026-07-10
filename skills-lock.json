@@ -1,0 +1,179 @@
+{
+  "version": 1,
+  "skills": {
+    "docker": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "skillPath": "docker/SKILL.md",
+      "computedHash": "b2f646b339642b2597a244b0f508b4712ce0fa7bb3c7ad982e0bd11fddcc5630"
+    },
+    "experiments": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/experiments/SKILL.md",
+      "computedHash": "31678da55e0a21182baee1af0a4b24bfc4a9b3f858ea235d21c15a89793c5e1b"
+    },
+    "gh-issue-planner": {
+      "source": "ymd38/dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/gh-issue-planner/SKILL.md",
+      "computedHash": "03042575beb21495edaafa562ad467918ce2f57232698645343a8cda465056b1"
+    },
+    "gh-issue-resolver": {
+      "source": "ymd38/dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/gh-issue-resolver/SKILL.md",
+      "computedHash": "e54e02b80d312fe77f0dc804c8c2ebd7f8b3f4fa50238f326cb83ee15785242b"
+    },
+    "golang-design-patterns": {
+      "source": "samber/cc-skills-golang",
+      "sourceType": "github",
+      "skillPath": "skills/golang-design-patterns/SKILL.md",
+      "computedHash": "935dbd0faedfe2b55df02fc2e7b0fecdc68b2052225bdc302e25177b6f174339"
+    },
+    "golang-popular-libraries": {
+      "source": "samber/cc-skills-golang",
+      "sourceType": "github",
+      "skillPath": "skills/golang-popular-libraries/SKILL.md",
+      "computedHash": "8823c753fa3822f99ba0e324d8e90903a92e2ed589daebb1989b4319bc3c6286"
+    },
+    "golang-testing": {
+      "source": "samber/cc-skills-golang",
+      "sourceType": "github",
+      "skillPath": "skills/golang-testing/SKILL.md",
+      "computedHash": "489cf0a9043fb1ba37aa408163c994ebe1f2fa4d6d7cb1859217ddf0a78f7a61"
+    },
+    "n8n:content-design": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/content-design/SKILL.md",
+      "computedHash": "e29cb30825a462dcdfc31820bf30992863ff6035c37272b81175961ab5ac85de"
+    },
+    "n8n:conventions": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/conventions/SKILL.md",
+      "computedHash": "9be7383c21d8fe19824fcff9fe91c58f61122d5f08589670741c3b4375e9167a"
+    },
+    "n8n:create-community-node-lint-rule": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/create-community-node-lint-rule/SKILL.md",
+      "computedHash": "056cc11e7fbee7efcaa4de17fbe28f915ec2c1e0349b81a26bfed82c43786b64"
+    },
+    "n8n:create-issue": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/create-issue/SKILL.md",
+      "computedHash": "fb4b48e72352b1692ea92778250d90feb249d0f66dd6449768bd3c07108587e5"
+    },
+    "n8n:create-pr": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/create-pr/SKILL.md",
+      "computedHash": "c3c44aefde5f74cba60b8d87de4180b3f751159d88383558192a98d20fd88c28"
+    },
+    "n8n:create-skill": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/create-skill/SKILL.md",
+      "computedHash": "473da2b0252c1d82e305b5a0b8ad68e6f9db540c524663b9dd7fcf082339ff70"
+    },
+    "n8n:db-migrations": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/db-migrations/SKILL.md",
+      "computedHash": "11cae5c3a5e1e4ed01fe561e624a43bdc5f616be12a4b6058e1b4f8ef5709010"
+    },
+    "n8n:design-system": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/design-system/SKILL.md",
+      "computedHash": "da3695d4ea70bc3a04b255753c0d2cb17e9ebe3309a9589feaffef3598702e57"
+    },
+    "n8n:linear-issue": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/linear-issue/SKILL.md",
+      "computedHash": "87905b5199120cd4b38efa9f7baa9168a52b2c006a53b60ebd04b3b460c99836"
+    },
+    "n8n:loom-transcript": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/loom-transcript/SKILL.md",
+      "computedHash": "c082c21170fb19b14bcf364941be4c03d404a7e18bb381f39ddf1b6e7a2604f3"
+    },
+    "n8n:node-add-oauth": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/node-add-oauth/SKILL.md",
+      "computedHash": "8ade95be765552f6f27a4040ead8cf0a20d3e7c270f60f1a1f980fb83f1edfb6"
+    },
+    "n8n:protect-endpoints": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/protect-endpoints/SKILL.md",
+      "computedHash": "383477364b8c882ec1c96ae501f1051a778ebc349552251ef8181d851f126984"
+    },
+    "n8n:reproduce-bug": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/reproduce-bug/SKILL.md",
+      "computedHash": "ebf9ceecc7e7527e1d157da1eb1bb2bc04f89fc4a35785931f562038e1bd72da"
+    },
+    "n8n:setup-mcps": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/setup-mcps/SKILL.md",
+      "computedHash": "09190e3b10a6d989619d6b28492a52a063ac364d8a3208880db55fac680c1ca5"
+    },
+    "n8n:spec-driven-development": {
+      "source": "n8n-io/n8n",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/spec-driven-development/SKILL.md",
+      "computedHash": "af21f57523556406171b42ea6e82049a57263e1f28936857459266b175d23140"
+    },
+    "nuxt": {
+      "source": "antfu/skills",
+      "sourceType": "github",
+      "skillPath": "skills/nuxt/SKILL.md",
+      "computedHash": "9e8237ec92083db9a6f4c77d5e5bf4b1d9873d670671235bc75455ee1ca39c74"
+    },
+    "nuxt-ui": {
+      "source": "nuxt/ui",
+      "sourceType": "github",
+      "skillPath": "skills/nuxt-ui/SKILL.md",
+      "computedHash": "2d58c6092b7028db223a819d5a37badc860a4036ca134a3e457ce7b056562f72"
+    },
+    "progress-dashboard": {
+      "source": "ymd38/dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/progress-dashboard/SKILL.md",
+      "computedHash": "5d236f142d4cb0a54175149f8a0ceebb0c7347edcf01eb6437512e09e4f46430"
+    },
+    "report-to-issues": {
+      "source": "ymd38/dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/report-to-issues/SKILL.md",
+      "computedHash": "c609e4c4c7027f2497ee72e186cbad7daa378b45f3d6c7606eecd22ce2b7f38f"
+    },
+    "software-evaluation": {
+      "source": "ymd38/dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/software-evaluation/SKILL.md",
+      "computedHash": "65043d34ea73225c1ea942f17d3729c965cb36a7ec2897152e40539f3ca740d6"
+    },
+    "spec-doc": {
+      "source": "ymd38/dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/spec-doc/SKILL.md",
+      "computedHash": "a83527feef71242772f21aa1d44ec4020e82b7b878b5d570960dabe747eca9e9"
+    },
+    "vulnerability-scan": {
+      "source": "ymd38/dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/vulnerability-scan/SKILL.md",
+      "computedHash": "b77720524ea8f0e0557f955bf01508e5ac77975fd761cb17194bedd8033317a4"
+    }
+  }
+}

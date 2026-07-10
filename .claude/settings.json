@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/lint-file.sh\"",
+            "timeout": 120,
+            "statusMessage": "編集ファイルをlint中…"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/test-changed.sh\"",
+            "timeout": 300,
+            "statusMessage": "変更プロジェクトのテスト実行中…"
+          }
+        ]
+      }
+    ]
+  }
+}

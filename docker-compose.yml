@@ -1,0 +1,75 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    ports:
+      # 既存スタックが 3306 を使うため、ホスト側は MYSQL_PORT（既定 3307）で公開する。
+      - "${MYSQL_PORT:-3307}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./api
+      target: dev
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./api:/app
+      - go_cache:/root/go/pkg/mod
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      DB_NAME: ${MYSQL_DATABASE}
+      JWT_SECRET: ${JWT_SECRET}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      # ローカルはHTTPのためSecure Cookieを無効化する。本番（HTTPS）では設定しない（既定true）
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  pmo-dashboard:
+    build:
+      context: ./apps/pmo-dashboard
+      target: dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/pmo-dashboard:/app
+      - /app/node_modules
+    environment:
+      # ブラウザ（クライアント）はホスト経由で API を叩く。
+      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-http://localhost:8080}
+      # SSR（コンテナ内）は compose ネットワーク経由で API を叩く。
+      NUXT_API_BASE_SERVER: ${NUXT_API_BASE_SERVER:-http://api:8080}
+      HOST: 0.0.0.0
+    depends_on:
+      - api
+
+  # マイグレーション専用（golang-migrate）。`make migrate-up` 等から `docker compose run` で起動する。
+  migrate:
+    image: migrate/migrate
+    profiles: [tools]
+    volumes:
+      - ./db/migrations:/migrations
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # --- 以下は未実装のため無効化（スキャフォールド後に有効化する）---
+  # worktrack: apps/worktrack 未構築（package.json なし）
+  # storybook-pmo / storybook-worktrack: storybook スクリプト未整備
+
+volumes:
+  mysql_data:
+  go_cache:

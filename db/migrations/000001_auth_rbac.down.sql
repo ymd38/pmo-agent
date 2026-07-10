@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS refresh_tokens;
+DROP TABLE IF EXISTS password_set_tokens;
+DROP TABLE IF EXISTS role_functions;
+DROP TABLE IF EXISTS functions;
+DROP TABLE IF EXISTS user_roles;
+DROP TABLE IF EXISTS roles;
+DROP TABLE IF EXISTS users;

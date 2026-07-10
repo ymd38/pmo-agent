@@ -1,0 +1,157 @@
+@import "tailwindcss";
+
+/* =========================================================================
+   デザイントークン（DESIGN.md と同期。変更時は DESIGN.md も同時更新すること）
+   ダークモード専用 — ライトモードは実装しない。
+   ========================================================================= */
+@theme {
+  /* サーフェス階層 */
+  --color-canvas: #090909;
+  --color-surface-1: #141414;
+  --color-surface-2: #1c1c1c;
+
+  /* テキスト（階層は ink / ink-muted の二値のみ） */
+  --color-ink: #ffffff;
+  --color-ink-muted: #999999;
+
+  /* 単一アクセント — リンク・フォーカス・選択状態のみ。背景/CTAフィル禁止 */
+  --color-accent-blue: #0099ff;
+
+  /* ヘアライン */
+  --color-hairline: #262626;
+  --color-hairline-soft: #1a1a1a;
+
+  /* ブランドグラデーション（spotlight card 専用のアンカー値） */
+  --color-grad-magenta: #d44df0;
+  --color-grad-violet: #6a4cf5;
+  --color-grad-orange: #ff7a3d;
+  --color-grad-coral: #ff5577;
+
+  /* セマンティック */
+  --color-success: #22c55e;
+
+  /* 角丸スケール */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 15px;
+  --radius-xl: 20px;
+  --radius-xxl: 30px;
+  --radius-pill: 100px;
+
+  /* 書体 */
+  --font-display: "Geist", "Mona Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* =========================================================================
+   ベース
+   ========================================================================= */
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  /* Inter の OpenType 変数 — ブランドの声。無効化禁止。 */
+  font-feature-settings: "cv01", "cv05", "cv09", "cv11", "ss03", "ss07";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent-blue) 28%, transparent);
+  color: var(--color-ink);
+}
+
+/* =========================================================================
+   タイポグラフィ階層（DESIGN.md の typography トークン）
+   letter-spacing はサイズ比で負（display は約 -5%）。
+   display は clamp で可変 — モバイルでも詰めを維持する。
+   ========================================================================= */
+@layer components {
+  .display-xxl {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: clamp(3.25rem, 9vw, 6.875rem);
+    line-height: 0.85;
+    letter-spacing: -0.05em;
+  }
+  .display-xl {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: clamp(2.75rem, 6.5vw, 5.3125rem);
+    line-height: 0.95;
+    letter-spacing: -0.05em;
+  }
+  .display-lg {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: clamp(2.25rem, 5vw, 3.875rem);
+    line-height: 1;
+    letter-spacing: -0.05em;
+  }
+  .display-md {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    line-height: 1.13;
+    letter-spacing: -0.03em;
+  }
+  .subhead {
+    font-weight: 400;
+    font-size: clamp(1.125rem, 2vw, 1.5rem);
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+  .body-lg {
+    font-size: 1.125rem;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+  .eyebrow {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  /* =======================================================================
+     グラデーション spotlight カード（ブランドのシグネチャ）
+     黒キャンバスに対する彩度で elevation を表現する。
+     ======================================================================= */
+  .spotlight-violet {
+    background:
+      radial-gradient(120% 130% at 0% 0%, #8b6cff 0%, var(--color-grad-violet) 42%, #2f1885 100%);
+  }
+  .spotlight-magenta {
+    background:
+      radial-gradient(120% 130% at 100% 0%, #ff8be6 0%, var(--color-grad-magenta) 44%, #7d1aa6 100%);
+  }
+  .spotlight-orange {
+    background:
+      linear-gradient(140deg, #ffc06a 0%, var(--color-grad-orange) 46%, #d63d18 100%);
+  }
+  .spotlight-coral {
+    background:
+      radial-gradient(120% 130% at 50% 0%, #ff8aa0 0%, var(--color-grad-coral) 46%, #b21f3f 100%);
+  }
+
+  /* ヒーロー背後の単一スポットライト（雰囲気）。装飾は1〜2点に留める。 */
+  .hero-aura {
+    background:
+      radial-gradient(
+        58% 48% at 50% 0%,
+        color-mix(in srgb, var(--color-grad-violet) 30%, transparent) 0%,
+        color-mix(in srgb, var(--color-grad-magenta) 14%, transparent) 36%,
+        transparent 72%
+      );
+  }
+}

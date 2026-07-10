@@ -1,0 +1,483 @@
+{
+  "name": "PMO 日次レポート生成",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * *"
+            }
+          ]
+        }
+      },
+      "id": "913ff9e4-5522-4d11-bba3-2ce11002d047",
+      "name": "毎日10時",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        608,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM projects WHERE (end_date >= CURDATE() OR end_date IS NULL) AND spreadsheet_id IS NOT NULL",
+        "options": {}
+      },
+      "id": "3fcc855a-14b0-4545-9ae7-075e5506b7a1",
+      "name": "進行中プロジェクト取得",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.3,
+      "position": [
+        880,
+        288
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "T1Z6cO5bigfe2wkY",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "b678262d-c211-444f-a691-376a72fcb29c",
+      "name": "プロジェクトループ",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1184,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.spreadsheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "プロジェクト進捗",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "df51ecbb-bf0d-4227-a3cb-3a6931af462d",
+      "name": "スプレッドシートデータ取得",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1360,
+        432
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "3fhnlWAEJn1NkQIz",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst project = $('プロジェクトループ').item.json;\nconst today = new Date().toISOString().split('T')[0];\n\nconst escapeSql = s => String(s).replace(/'/g, \"''\");\n\nconst rows = items.map(item => {\n  const row = item.json;\n  const progress = parseFloat(String(row['進捗'] || '0').replace('%', '').trim()) || 0;\n  const deadline = row['期限'] ? String(row['期限']).trim() || null : null;\n  return {\n    project_id: project.id,\n    phase: escapeSql(String(row['フェーズ'] || '')),\n    task: escapeSql(String(row['タスク'] || '')),\n    status: escapeSql(String(row['ステータス'] || '')),\n    progress: Math.min(100, Math.max(0, progress)),\n    deadline: deadline,\n    resister_day: today\n  };\n}).filter(r => r.task !== '');\n\nlet bulkInsertSql = 'SELECT 1';\nif (rows.length > 0) {\n  const valueRows = rows.map(r => {\n    const deadlineVal = r.deadline ? \"'\" + r.deadline + \"'\" : 'NULL';\n    return '(' + r.project_id + \", '\" + r.phase + \"', '\" + r.task + \"', '\" + r.status + \"', \" + r.progress + ', ' + deadlineVal + \", '\" + r.resister_day + \"')\";\n  }).join(',\\n');\n  bulkInsertSql = 'INSERT INTO project_progress (project_id, phase, task, status, progress, deadline, resister_day) VALUES\\n' + valueRows;\n}\n\nreturn [{\n  json: {\n    project_id: project.id,\n    today: today,\n    row_count: rows.length,\n    bulk_insert_sql: bulkInsertSql\n  }\n}];"
+      },
+      "id": "9bfba27c-812c-49ce-bed0-02c7070bd293",
+      "name": "進捗データ整形",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1584,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM project_progress WHERE project_id = {{ $json.project_id }} AND resister_day = '{{ $json.today }}'",
+        "options": {}
+      },
+      "id": "1815fd53-5e35-4256-a1d9-e90fb9272cf4",
+      "name": "当日進捗データ削除",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.3,
+      "position": [
+        1808,
+        432
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "T1Z6cO5bigfe2wkY",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "{{ $('進捗データ整形').item.json.bulk_insert_sql }}",
+        "options": {}
+      },
+      "id": "60099924-eef2-48cc-9615-ad0f15e8e65a",
+      "name": "進捗データ一括保存",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.3,
+      "position": [
+        2032,
+        432
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "T1Z6cO5bigfe2wkY",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM project_progress WHERE project_id = {{ $('進捗データ整形').item.json.project_id }} AND resister_day >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) ORDER BY resister_day, phase, task",
+        "options": {}
+      },
+      "id": "8d117a3f-730b-4752-8f7a-4fa03121c599",
+      "name": "過去7日間データ取得",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.3,
+      "position": [
+        2240,
+        432
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "T1Z6cO5bigfe2wkY",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst project = $('プロジェクトループ').item.json;\nconst today = new Date().toISOString().split('T')[0];\nconst now = new Date();\n\n// resister_day ごとにグループ化\nconst byDay = {};\nfor (const item of items) {\n  const raw = item.json.resister_day;\n  const day = raw instanceof Date ? raw.toISOString().split('T')[0] : String(raw).split('T')[0];\n  if (!byDay[day]) byDay[day] = [];\n  byDay[day].push(item.json);\n}\n\nconst sortedDays = Object.keys(byDay).sort();\nconst latestDay = sortedDays[sortedDays.length - 1];\nconst todayData = byDay[latestDay] || [];\n\n// 全体進捗率\nconst overallProgress = todayData.length > 0\n  ? todayData.reduce((sum, t) => sum + (parseFloat(t.progress) || 0), 0) / todayData.length\n  : 0;\n\n// フェーズ別サマリー\nconst phaseMap = {};\nfor (const task of todayData) {\n  const ph = task.phase || 'unknown';\n  if (!phaseMap[ph]) phaseMap[ph] = [];\n  phaseMap[ph].push(task);\n}\nconst phaseSummary = {};\nfor (const ph in phaseMap) {\n  const pts = phaseMap[ph];\n  phaseSummary[ph] = {\n    progress: pts.reduce((s, t) => s + (parseFloat(t.progress) || 0), 0) / pts.length,\n    task_count: pts.length,\n    status_dist: pts.reduce((acc, t) => { acc[t.status] = (acc[t.status] || 0) + 1; return acc; }, {})\n  };\n}\n\n// リスク検知\nconst risks = [];\n\nconst overdueTasks = todayData.filter(t => t.deadline && new Date(t.deadline) < now && t.status !== '完了');\nif (overdueTasks.length > 0) {\n  risks.push({\n    type: 'overdue',\n    severity: 'high',\n    count: overdueTasks.length,\n    tasks: overdueTasks.map(t => ({ task: t.task, phase: t.phase, deadline: t.deadline }))\n  });\n}\n\nif (project.start_date && project.end_date) {\n  const totalDays = (new Date(project.end_date) - new Date(project.start_date)) / 86400000;\n  const elapsedDays = (now - new Date(project.start_date)) / 86400000;\n  const timeProgress = Math.min((elapsedDays / totalDays) * 100, 100);\n  if (timeProgress - overallProgress > 20) {\n    risks.push({\n      type: 'delayed',\n      severity: 'high',\n      time_progress: Math.round(timeProgress),\n      actual_progress: Math.round(overallProgress)\n    });\n  }\n}\n\nif (sortedDays.length >= 2) {\n  const firstDayData = byDay[sortedDays[0]];\n  const stagnant = todayData.filter(t => {\n    if (t.status === '完了') return false;\n    const first = firstDayData.find(f => f.task === t.task && f.phase === t.phase);\n    return first && parseFloat(first.progress) === parseFloat(t.progress);\n  });\n  if (stagnant.length > 0) {\n    risks.push({\n      type: 'stagnant',\n      severity: 'medium',\n      count: stagnant.length,\n      tasks: stagnant.map(t => ({ task: t.task, phase: t.phase, progress: t.progress }))\n    });\n  }\n}\n\n// トレンド・完了予測\nconst dailyProgress = sortedDays.map(day => ({\n  date: day,\n  progress: byDay[day].reduce((s, t) => s + (parseFloat(t.progress) || 0), 0) / byDay[day].length\n}));\n\nlet completionEstimate = null;\nif (dailyProgress.length >= 2) {\n  const first = dailyProgress[0];\n  const last = dailyProgress[dailyProgress.length - 1];\n  const daysDiff = (new Date(last.date) - new Date(first.date)) / 86400000;\n  const dailyRate = daysDiff > 0 ? (last.progress - first.progress) / daysDiff : 0;\n  if (dailyRate > 0) {\n    const daysLeft = (100 - last.progress) / dailyRate;\n    completionEstimate = new Date(Date.now() + daysLeft * 86400000).toISOString().split('T')[0];\n  }\n}\n\nconst escapeSql = s => String(s).replace(/'/g, \"''\");\n\nreturn [{\n  json: {\n    project_id: project.id,\n    report_date: today,\n    overall_progress: Math.round(overallProgress * 100) / 100,\n    phase_summary_sql: escapeSql(JSON.stringify(phaseSummary)),\n    risks_sql: escapeSql(JSON.stringify(risks)),\n    trend_sql: escapeSql(JSON.stringify({ daily_progress: dailyProgress, completion_estimate: completionEstimate }))\n  }\n}];"
+      },
+      "id": "679d26e9-bda2-4476-96db-535458483b4c",
+      "name": "進捗分析",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO daily_reports (project_id, report_date, overall_progress, phase_summary, risks, trend) VALUES ({{ $json.project_id }}, '{{ $json.report_date }}', {{ $json.overall_progress }}, '{{ $json.phase_summary_sql }}', '{{ $json.risks_sql }}', '{{ $json.trend_sql }}') ON DUPLICATE KEY UPDATE overall_progress = VALUES(overall_progress), phase_summary = VALUES(phase_summary), risks = VALUES(risks), trend = VALUES(trend)",
+        "options": {}
+      },
+      "id": "9cfff143-4c95-426b-b4c1-5423c34046f5",
+      "name": "日次レポート保存",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.3,
+      "position": [
+        2688,
+        432
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "T1Z6cO5bigfe2wkY",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "c06c5790-b32d-4c5c-b0d1-5b2596900910",
+      "name": "完了",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1536,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const analysisData = $('進捗分析').item.json;\nconst project = $('プロジェクトループ').item.json;\nconst risks = JSON.parse(analysisData.risks_sql);\nconst phaseSummary = JSON.parse(analysisData.phase_summary_sql);\nconst trend = JSON.parse(analysisData.trend_sql);\nconst phaseLines = Object.entries(phaseSummary).map(([ph, d]) => '  - ' + ph + ': 進捗 ' + Math.round(d.progress) + '%、タスク数 ' + d.task_count).join('\\n');\nconst riskLines = risks.map(r => {\n  if (r.type === 'overdue') return '  - 期限超過（高）: ' + r.count + '件';\n  if (r.type === 'delayed') return '  - 進捗遅延（高）: 時間消化' + r.time_progress + '%に対し進捗' + r.actual_progress + '%';\n  if (r.type === 'stagnant') return '  - 進捗停滞（中）: ' + r.count + '件';\n  return '';\n}).filter(Boolean).join('\\n');\nconst completion = trend.completion_estimate || '未算出';\nconst lines = [\n  'あなたはPMO（プロジェクトマネジメントオフィス）担当者です。以下の日次レポートを分析し、次のアクション判断のための実務的コメントを日本語200〜400字で記述してください。',\n  '',\n  '【プロジェクト情報】',\n  '- プロジェクト名: ' + project.name,\n  '- レポート日: ' + analysisData.report_date,\n  '- 全体進捗率: ' + analysisData.overall_progress + '%',\n  '- 完了予測日: ' + completion,\n  '',\n  '【フェーズ別進捗】',\n  phaseLines || '  データなし',\n  '',\n  '【検知リスク】',\n  riskLines || '  リスクなし',\n  '',\n  '優先対処すべきリスクとその根拠、推奨アクションを簡潔に記述してください。'\n];\nreturn [{json: {project_id: analysisData.project_id, report_date: analysisData.report_date, prompt: lines.join('\\n')}}];"
+      },
+      "id": "a5b7f9b1-2b07-4427-baf2-b86193c53b85",
+      "name": "PMOコメントプロンプト生成",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "options": {}
+      },
+      "id": "83b2880a-c07d-4985-b9dd-646d4148edfe",
+      "name": "PMO分析コメント生成",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        3136,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "1c8d45eb-e18c-44a6-8467-9a6a41d21802",
+      "name": "OpenAIモデル（日次）",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        3136,
+        640
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "cVvSvEKJSXVgqeH1",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiOutput = $json.output;\nconst meta = $('PMOコメントプロンプト生成').item.json;\nconst escapeSql = s => String(s).replace(/'/g, \"''\");\nconst comment = escapeSql(aiOutput.trim());\nconst q = \"'\";\nreturn [{json: {update_sql: 'UPDATE daily_reports SET ai_comment = ' + q + comment + q + ' WHERE project_id = ' + meta.project_id + ' AND report_date = ' + q + meta.report_date + q}}];"
+      },
+      "id": "d1428b43-58f8-491b-8350-5817fbac12f5",
+      "name": "日次AIコメントSQL準備",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3424,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "{{ $json.update_sql }}",
+        "options": {}
+      },
+      "id": "8e63d2b0-6a76-4951-9c42-080d7b39fab8",
+      "name": "日次AIコメントDB保存",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.3,
+      "position": [
+        3632,
+        432
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "T1Z6cO5bigfe2wkY",
+          "name": "MySQL account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "毎日10時": {
+      "main": [
+        [
+          {
+            "node": "進行中プロジェクト取得",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "進行中プロジェクト取得": {
+      "main": [
+        [
+          {
+            "node": "プロジェクトループ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "プロジェクトループ": {
+      "main": [
+        [
+          {
+            "node": "完了",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "スプレッドシートデータ取得",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "スプレッドシートデータ取得": {
+      "main": [
+        [
+          {
+            "node": "進捗データ整形",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "進捗データ整形": {
+      "main": [
+        [
+          {
+            "node": "当日進捗データ削除",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "当日進捗データ削除": {
+      "main": [
+        [
+          {
+            "node": "進捗データ一括保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "進捗データ一括保存": {
+      "main": [
+        [
+          {
+            "node": "過去7日間データ取得",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "過去7日間データ取得": {
+      "main": [
+        [
+          {
+            "node": "進捗分析",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "進捗分析": {
+      "main": [
+        [
+          {
+            "node": "日次レポート保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "日次レポート保存": {
+      "main": [
+        [
+          {
+            "node": "PMOコメントプロンプト生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAIモデル（日次）": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "PMO分析コメント生成",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PMOコメントプロンプト生成": {
+      "main": [
+        [
+          {
+            "node": "PMO分析コメント生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PMO分析コメント生成": {
+      "main": [
+        [
+          {
+            "node": "日次AIコメントSQL準備",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "日次AIコメントSQL準備": {
+      "main": [
+        [
+          {
+            "node": "日次AIコメントDB保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "日次AIコメントDB保存": {
+      "main": [
+        [
+          {
+            "node": "プロジェクトループ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "bb04fd3b-21cd-4ca7-90af-d684ce19fea6",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cf7d36192871525371f752df7affacb3ce40eae788f5dc87c0cf9b346959611e"
+  },
+  "id": "neKrlhHMYpeqgWcR",
+  "tags": []
+}

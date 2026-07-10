@@ -1,0 +1,563 @@
+{
+  "name": "PMO 週次・エグゼクティブレポート生成",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "54b00ce0-2f00-4df8-a3dd-d964ab44eb75",
+      "name": "毎週月曜9時",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -384,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM projects WHERE (end_date >= CURDATE() OR end_date IS NULL) AND spreadsheet_id IS NOT NULL",
+        "options": {}
+      },
+      "id": "8a38d102-4619-413e-b918-c2b0ac2e9e2b",
+      "name": "進行中プロジェクト取得",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.3,
+      "position": [
+        -176,
+        224
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "T1Z6cO5bigfe2wkY",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "e5c8f622-b9c5-4a42-bc6f-e632ca8fbda1",
+      "name": "プロジェクトループ",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        48,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM daily_reports WHERE project_id = {{ $json.id }} AND report_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) ORDER BY report_date ASC",
+        "options": {}
+      },
+      "id": "4280f71d-3dbc-473e-8655-3bada29d05ec",
+      "name": "日次レポート取得",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.3,
+      "position": [
+        272,
+        240
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "T1Z6cO5bigfe2wkY",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst project = $('プロジェクトループ').item.json;\n\nconst now = new Date();\nconst dayOfWeek = now.getDay();\nconst diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;\nconst weekStart = new Date(now);\nweekStart.setDate(now.getDate() + diffToMonday);\nconst weekEnd = new Date(weekStart);\nweekEnd.setDate(weekStart.getDate() + 6);\nconst weekStartStr = weekStart.toISOString().split('T')[0];\nconst weekEndStr = weekEnd.toISOString().split('T')[0];\n\nconst reports = items.map(item => {\n  const risks = typeof item.json.risks === 'string' ? JSON.parse(item.json.risks || '[]') : (item.json.risks || []);\n  return {\n    date: String(item.json.report_date).split('T')[0],\n    progress: parseFloat(item.json.overall_progress) || 0,\n    risks: risks\n  };\n});\n\nconst avgProgress = reports.length > 0\n  ? reports.reduce((s, r) => s + r.progress, 0) / reports.length\n  : 0;\n\nconst progressTrend = reports.length >= 2\n  ? reports[reports.length - 1].progress - reports[0].progress\n  : 0;\n\nconst allRisks = reports.flatMap(r => r.risks);\nconst riskCounts = allRisks.reduce((acc, r) => {\n  acc[r.type] = (acc[r.type] || 0) + 1;\n  return acc;\n}, {});\n\nconst summary = {\n  week_start: weekStartStr,\n  week_end: weekEndStr,\n  avg_progress: Math.round(avgProgress * 100) / 100,\n  progress_trend: Math.round(progressTrend * 100) / 100,\n  report_count: reports.length,\n  high_risks: allRisks.filter(r => r.severity === 'high'),\n  risk_counts: riskCounts,\n  daily_progression: reports.map(r => ({ date: r.date, progress: r.progress }))\n};\n\nconst escapeSql = s => String(s).replace(/'/g, \"''\");\n\nreturn [{\n  json: {\n    project_id: project.id,\n    week_start_date: weekStartStr,\n    week_end_date: weekEndStr,\n    summary_sql: escapeSql(JSON.stringify(summary))\n  }\n}];"
+      },
+      "id": "621e5315-0672-493d-914d-cbee83f467a7",
+      "name": "週次サマリー生成",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO weekly_reports (project_id, week_start_date, week_end_date, summary) VALUES ({{ $json.project_id }}, '{{ $json.week_start_date }}', '{{ $json.week_end_date }}', '{{ $json.summary_sql }}') ON DUPLICATE KEY UPDATE week_end_date = VALUES(week_end_date), summary = VALUES(summary)",
+        "options": {}
+      },
+      "id": "662e0a53-482e-4e4e-a52a-9f578bf1dbe3",
+      "name": "週次レポート保存",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.3,
+      "position": [
+        720,
+        240
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "T1Z6cO5bigfe2wkY",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT wr.project_id, wr.week_start_date, wr.week_end_date, wr.summary, p.name AS project_name, p.start_date, p.end_date FROM weekly_reports wr JOIN projects p ON wr.project_id = p.id WHERE wr.week_start_date = (SELECT MAX(week_start_date) FROM weekly_reports)",
+        "options": {}
+      },
+      "id": "3226645d-debf-445d-9d34-f405ffea9878",
+      "name": "全週次レポート取得",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.3,
+      "position": [
+        256,
+        -32
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "T1Z6cO5bigfe2wkY",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all();\nconst today = new Date().toISOString().split('T')[0];\n\nconst now = new Date();\nconst dayOfWeek = now.getDay();\nconst diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;\nconst weekStart = new Date(now);\nweekStart.setDate(now.getDate() + diffToMonday);\nconst weekStartStr = weekStart.toISOString().split('T')[0];\n\nconst deduped = new Map();\nfor (const item of allItems) {\n  const pid = item.json.project_id;\n  if (!deduped.has(pid) || String(item.json.week_start_date) > String(deduped.get(pid).json.week_start_date)) {\n    deduped.set(pid, item);\n  }\n}\nconst items = Array.from(deduped.values());\n\nconst projects = items.map(item => {\n  const summary = typeof item.json.summary === 'string'\n    ? JSON.parse(item.json.summary || '{}')\n    : (item.json.summary || {});\n  return {\n    project_id: item.json.project_id,\n    project_name: item.json.project_name,\n    avg_progress: summary.avg_progress || 0,\n    progress_trend: summary.progress_trend || 0,\n    high_risk_count: (summary.high_risks || []).length,\n    risk_counts: summary.risk_counts || {}\n  };\n});\n\nconst totalProjects = projects.length;\nconst highRiskProjects = projects.filter(p => p.high_risk_count > 0);\nconst avgProgress = totalProjects > 0\n  ? projects.reduce((s, p) => s + p.avg_progress, 0) / totalProjects\n  : 0;\nconst onTrackProjects = projects.filter(p => p.progress_trend >= 0 && p.high_risk_count === 0);\n\nconst content = {\n  report_week: weekStartStr,\n  total_projects: totalProjects,\n  on_track_count: onTrackProjects.length,\n  high_risk_count: highRiskProjects.length,\n  average_progress: Math.round(avgProgress * 100) / 100,\n  projects: projects,\n  high_risk_projects: highRiskProjects.map(p => p.project_name),\n  executive_summary: totalProjects + '件のプロジェクトを管理中。平均進捗率' + Math.round(avgProgress) + '%。順調' + onTrackProjects.length + '件、高リスク' + highRiskProjects.length + '件。'\n};\n\nconst escapeSql = s => String(s).replace(/'/g, \"''\");\n\nreturn [{\n  json: {\n    report_date: today,\n    report_type: 'weekly',\n    content_sql: escapeSql(JSON.stringify(content))\n  }\n}];"
+      },
+      "id": "14766ae8-4369-4e73-bd36-b2db177484ca",
+      "name": "エグゼクティブレポート生成",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO executive_reports (report_date, report_type, content) VALUES ('{{ $json.report_date }}', '{{ $json.report_type }}', '{{ $json.content_sql }}') ON DUPLICATE KEY UPDATE content = VALUES(content)",
+        "options": {}
+      },
+      "id": "3035fbd8-d9ed-4972-b949-86ff0e141c22",
+      "name": "エグゼクティブレポート保存",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.3,
+      "position": [
+        720,
+        -32
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "T1Z6cO5bigfe2wkY",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const summaryData = $('週次サマリー生成').item.json;\nconst project = $('プロジェクトループ').item.json;\nconst summary = JSON.parse(summaryData.summary_sql);\nconst highRiskCount = (summary.high_risks || []).length;\nconst riskCounts = summary.risk_counts || {};\nconst riskLines = Object.entries(riskCounts).map(([type, count]) => '  - ' + type + ': ' + count + '件').join('\\n');\nconst trendSign = summary.progress_trend >= 0 ? '+' : '';\nconst lines = [\n  'あなたはPMO（プロジェクトマネジメントオフィス）担当者です。以下の週次レポートを分析し、次週のアクション判断のための実務的コメントを日本語200〜400字で記述してください。',\n  '',\n  '【プロジェクト情報】',\n  '- プロジェクト名: ' + project.name,\n  '- 対象週: ' + summary.week_start + '〜' + summary.week_end,\n  '- 週平均進捗率: ' + summary.avg_progress + '%',\n  '- 進捗トレンド: ' + trendSign + summary.progress_trend + '%',\n  '- 高リスク件数: ' + highRiskCount + '件',\n  '',\n  '【リスク種別内訳】',\n  riskLines || '  リスクなし',\n  '',\n  '優先対処すべきリスクとその根拠、次週の推奨アクションを簡潔に記述してください。'\n];\nreturn [{json: {project_id: summaryData.project_id, week_start_date: summaryData.week_start_date, prompt: lines.join('\\n')}}];"
+      },
+      "id": "02cffca6-ba79-4867-8f44-536f6b5137e8",
+      "name": "週次PMOプロンプト生成",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "options": {}
+      },
+      "id": "d74541ce-7aa1-45ad-aca1-3e5a34847960",
+      "name": "週次PMO分析コメント生成",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        1168,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "37062073-db72-4a30-80c1-2e516f7bb97b",
+      "name": "OpenAIモデル（週次）",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1168,
+        432
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "tZ7IGLRfyiZUxBBF",
+          "name": "OpenAI account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiOutput = $json.output;\nconst meta = $('週次PMOプロンプト生成').item.json;\nconst escapeSql = s => String(s).replace(/'/g, \"''\");\nconst comment = escapeSql(aiOutput.trim());\nconst q = \"'\";\nreturn [{json: {update_sql: 'UPDATE weekly_reports SET ai_comment = ' + q + comment + q + ' WHERE project_id = ' + meta.project_id + ' AND week_start_date = ' + q + meta.week_start_date + q}}];"
+      },
+      "id": "bf62cb6c-8fd7-4c8e-bbff-f5f7477a5aac",
+      "name": "週次AIコメントSQL準備",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "{{ $json.update_sql }}",
+        "options": {}
+      },
+      "id": "b254492a-253b-43d9-acf9-5834f98ee531",
+      "name": "週次AIコメントDB保存",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.3,
+      "position": [
+        1616,
+        240
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "T1Z6cO5bigfe2wkY",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const reportData = $('エグゼクティブレポート生成').item.json;\nconst content = JSON.parse(reportData.content_sql);\nconst projectLines = (content.projects || []).map(p => '  - ' + p.project_name + ': 進捗' + Math.round(p.avg_progress) + '%、高リスク' + p.high_risk_count + '件').join('\\n');\nconst lines = [\n  'あなたは経営者（CEO）の視点でプロジェクトポートフォリオを評価するアドバイザーです。以下のエグゼクティブレポートを分析し、経営者の意思決定を支援する戦略的コメントを日本語300〜500字で記述してください。',\n  '',\n  '【ポートフォリオ総括】',\n  '- レポート週: ' + content.report_week,\n  '- 管理プロジェクト数: ' + content.total_projects + '件',\n  '- 平均進捗率: ' + content.average_progress + '%',\n  '- 順調件数: ' + content.on_track_count + '件',\n  '- 高リスク件数: ' + content.high_risk_count + '件',\n  '',\n  '【プロジェクト別状況】',\n  projectLines || '  データなし',\n  '',\n  '【概況】',\n  content.executive_summary,\n  '',\n  'ポートフォリオ全体の健全性評価と、リスク許容・優先投資・撤退判断に直結する経営判断ポイントを端的に記述してください。'\n];\nreturn [{json: {report_date: reportData.report_date, prompt: lines.join('\\n')}}];"
+      },
+      "id": "a39321b2-51ea-43b9-897f-f3a79576b7d7",
+      "name": "エグゼクティブプロンプト生成",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "options": {}
+      },
+      "id": "c0f0764f-9039-463b-aac5-12a3169024d4",
+      "name": "経営分析コメント生成",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        1168,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "0c8b63ca-e660-45a2-8026-804938ceee4a",
+      "name": "OpenAIモデル（エグゼクティブ）",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1168,
+        160
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "tZ7IGLRfyiZUxBBF",
+          "name": "OpenAI account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiOutput = $json.output;\nconst meta = $('エグゼクティブプロンプト生成').item.json;\nconst escapeSql = s => String(s).replace(/'/g, \"''\");\nconst comment = escapeSql(aiOutput.trim());\nconst q = \"'\";\nreturn [{json: {update_sql: 'UPDATE executive_reports SET ai_comment = ' + q + comment + q + ' WHERE report_date = ' + q + meta.report_date + q + ' AND report_type = ' + q + 'weekly' + q}}];"
+      },
+      "id": "6c9bf6c0-cde9-4ec7-b5ec-4974e5ef63b6",
+      "name": "エグゼクティブAIコメントSQL準備",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "{{ $json.update_sql }}",
+        "options": {}
+      },
+      "id": "f288bf38-78d4-49fe-a9ab-4b226dac0d08",
+      "name": "エグゼクティブAIコメントDB保存",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.3,
+      "position": [
+        1616,
+        -32
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "T1Z6cO5bigfe2wkY",
+          "name": "MySQL account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "毎週月曜9時": {
+      "main": [
+        [
+          {
+            "node": "進行中プロジェクト取得",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "進行中プロジェクト取得": {
+      "main": [
+        [
+          {
+            "node": "プロジェクトループ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "プロジェクトループ": {
+      "main": [
+        [
+          {
+            "node": "全週次レポート取得",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "日次レポート取得",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "日次レポート取得": {
+      "main": [
+        [
+          {
+            "node": "週次サマリー生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "週次サマリー生成": {
+      "main": [
+        [
+          {
+            "node": "週次レポート保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "週次レポート保存": {
+      "main": [
+        [
+          {
+            "node": "週次PMOプロンプト生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAIモデル（週次）": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "週次PMO分析コメント生成",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "週次PMOプロンプト生成": {
+      "main": [
+        [
+          {
+            "node": "週次PMO分析コメント生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "週次PMO分析コメント生成": {
+      "main": [
+        [
+          {
+            "node": "週次AIコメントSQL準備",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "週次AIコメントSQL準備": {
+      "main": [
+        [
+          {
+            "node": "週次AIコメントDB保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "週次AIコメントDB保存": {
+      "main": [
+        [
+          {
+            "node": "プロジェクトループ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "全週次レポート取得": {
+      "main": [
+        [
+          {
+            "node": "エグゼクティブレポート生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "エグゼクティブレポート生成": {
+      "main": [
+        [
+          {
+            "node": "エグゼクティブレポート保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "エグゼクティブレポート保存": {
+      "main": [
+        [
+          {
+            "node": "エグゼクティブプロンプト生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAIモデル（エグゼクティブ）": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "経営分析コメント生成",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "エグゼクティブプロンプト生成": {
+      "main": [
+        [
+          {
+            "node": "経営分析コメント生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "経営分析コメント生成": {
+      "main": [
+        [
+          {
+            "node": "エグゼクティブAIコメントSQL準備",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "エグゼクティブAIコメントSQL準備": {
+      "main": [
+        [
+          {
+            "node": "エグゼクティブAIコメントDB保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "07661ccb-0a05-4121-b8b8-2c2f0c74d260",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cf7d36192871525371f752df7affacb3ce40eae788f5dc87c0cf9b346959611e"
+  },
+  "id": "rd8o8lbHy2XuUelT",
+  "tags": []
+}

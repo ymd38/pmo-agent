@@ -1,0 +1,15 @@
+# air（ホットリロード）設定。dev コンテナで `air` が参照する。
+# エントリーポイントは ./cmd/server。
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/main ./cmd/server"
+  bin = "./tmp/main"
+  include_ext = ["go"]
+  exclude_dir = ["tmp", "bin"]
+  delay = 500
+  stop_on_error = true
+
+[log]
+  time = true

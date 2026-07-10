@@ -1,0 +1,174 @@
+package usecase
+
+import (
+	"context"
+	"fmt"
+
+	"pmo-agent/api/internal/domain"
+)
+
+// --- テスト用フェイク ---
+
+type fakeUserRepo struct {
+	byID    map[int]*domain.User
+	byEmail map[string]*domain.User
+	funcs   map[int][]string
+	roles   map[int][]domain.Role
+	created []*domain.User
+	hashSet map[int]string
+}
+
+func newFakeUserRepo() *fakeUserRepo {
+	return &fakeUserRepo{
+		byID: map[int]*domain.User{}, byEmail: map[string]*domain.User{},
+		funcs: map[int][]string{}, roles: map[int][]domain.Role{},
+		hashSet: map[int]string{},
+	}
+}
+
+func (f *fakeUserRepo) add(u *domain.User) {
+	f.byID[u.ID] = u
+	f.byEmail[u.Email] = u
+}
+
+func (f *fakeUserRepo) FindByID(_ context.Context, id int) (*domain.User, error) {
+	if u, ok := f.byID[id]; ok {
+		return u, nil
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (f *fakeUserRepo) FindByEmail(_ context.Context, email string) (*domain.User, error) {
+	if u, ok := f.byEmail[email]; ok {
+		return u, nil
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (f *fakeUserRepo) Create(_ context.Context, u *domain.User, _ []int) error {
+	u.ID = len(f.byID) + 1
+	f.add(u)
+	f.created = append(f.created, u)
+	return nil
+}
+
+func (f *fakeUserRepo) Update(_ context.Context, _ *domain.User, _ []int) error { return nil }
+
+func (f *fakeUserRepo) UpdatePasswordHash(_ context.Context, userID int, hash string) error {
+	f.hashSet[userID] = hash
+	if u, ok := f.byID[userID]; ok {
+		u.PasswordHash = &hash
+	}
+	return nil
+}
+
+func (f *fakeUserRepo) Deactivate(_ context.Context, id int) error {
+	if u, ok := f.byID[id]; ok {
+		u.IsActive = false
+	}
+	return nil
+}
+
+func (f *fakeUserRepo) List(_ context.Context) ([]domain.User, error) { return nil, nil }
+
+func (f *fakeUserRepo) FunctionsByUserID(_ context.Context, id int) ([]string, error) {
+	return f.funcs[id], nil
+}
+
+func (f *fakeUserRepo) RolesByUserID(_ context.Context, id int) ([]domain.Role, error) {
+	return f.roles[id], nil
+}
+
+type fakeSetTokenRepo struct {
+	byHash     map[string]*domain.PasswordSetToken
+	used       map[int]bool
+	invalidate map[int]bool
+	seq        int
+}
+
+func newFakeSetTokenRepo() *fakeSetTokenRepo {
+	return &fakeSetTokenRepo{byHash: map[string]*domain.PasswordSetToken{}, used: map[int]bool{}, invalidate: map[int]bool{}}
+}
+
+func (f *fakeSetTokenRepo) Create(_ context.Context, t *domain.PasswordSetToken) error {
+	f.seq++
+	t.ID = f.seq
+	f.byHash[t.TokenHash] = t
+	return nil
+}
+
+func (f *fakeSetTokenRepo) FindByHash(_ context.Context, hash string) (*domain.PasswordSetToken, error) {
+	if t, ok := f.byHash[hash]; ok {
+		return t, nil
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (f *fakeSetTokenRepo) MarkUsed(_ context.Context, id int) error { f.used[id] = true; return nil }
+
+func (f *fakeSetTokenRepo) InvalidateForUser(_ context.Context, userID int) error {
+	f.invalidate[userID] = true
+	return nil
+}
+
+type fakeRefreshRepo struct {
+	byHash      map[string]*domain.RefreshToken
+	revoked     map[int]bool
+	revokedUser map[int]bool
+	seq         int
+}
+
+func newFakeRefreshRepo() *fakeRefreshRepo {
+	return &fakeRefreshRepo{byHash: map[string]*domain.RefreshToken{}, revoked: map[int]bool{}, revokedUser: map[int]bool{}}
+}
+
+func (f *fakeRefreshRepo) Create(_ context.Context, t *domain.RefreshToken) error {
+	f.seq++
+	t.ID = f.seq
+	f.byHash[t.TokenHash] = t
+	return nil
+}
+
+func (f *fakeRefreshRepo) FindByHash(_ context.Context, hash string) (*domain.RefreshToken, error) {
+	if t, ok := f.byHash[hash]; ok {
+		return t, nil
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (f *fakeRefreshRepo) Revoke(_ context.Context, id int) error { f.revoked[id] = true; return nil }
+
+func (f *fakeRefreshRepo) RevokeAllForUser(_ context.Context, userID int) error {
+	f.revokedUser[userID] = true
+	return nil
+}
+
+type fakeRoleRepo struct {
+	existing map[int]bool
+}
+
+func (f *fakeRoleRepo) List(_ context.Context) ([]domain.Role, error) { return nil, nil }
+
+func (f *fakeRoleRepo) AllIDsExist(_ context.Context, ids []int) (bool, error) {
+	for _, id := range ids {
+		if !f.existing[id] {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// fakeJWT は固定のアクセストークンを返す。
+type fakeJWT struct{}
+
+func (fakeJWT) Generate(userID int) (string, error) { return fmt.Sprintf("access-%d", userID), nil }
+
+// fakeTokens は決定的な不透明トークンを生成する。Hash は "h:"+plain。
+type fakeTokens struct{ seq int }
+
+func (f *fakeTokens) Generate() (string, error) {
+	f.seq++
+	return fmt.Sprintf("plain-%d", f.seq), nil
+}
+
+func (fakeTokens) Hash(plain string) string { return "h:" + plain }

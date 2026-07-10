@@ -1,0 +1,30 @@
+# Claude Code / Agent Skills
+.claude/settings.local.json
+.agents/skills/
+.claude/skills/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Nuxt build output
+.nuxt/
+.output/
+dist/
+
+# Node dependencies
+node_modules/
+
+# Go build artifacts
+tmp/
+*.test
+coverage.out
+*.coverprofile
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# npm
+npm-debug.log
