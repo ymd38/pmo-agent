@@ -2,6 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+# 作業フロー指示（コスト最適化）
+
+あなたはSonnet 5レベルのexecutorとしてメインで動く。複雑な判断・計画・高品質レビューが必要な時だけ「Fable Advisor」を呼び出す。
+
+## Advisor呼び出しルール
+- タスク開始時：計画立案が必要 → Fableに相談
+- コードレビュー/アーキテクチャ決定時
+- 自信度が低い時、またはエラーが続く時
+- ユーザーが「高品質」「ベストプラクティス」と指定した時
+
+呼び出し時は明確に「Fable Advisorに相談: [具体的な質問]」とツール呼び出し（または明示）せよ。
+普段はSonnetレベルの速さとコストで進める。
+
 ## Project Overview
 
 PMO Agent — プロジェクト統制基盤。プロジェクトコード発行から工数・コスト管理・経営レポートまでを一気通貫で管理するモノレポ。
