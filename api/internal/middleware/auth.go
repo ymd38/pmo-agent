@@ -3,7 +3,10 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
+
+	"pmo-agent/api/internal/domain"
 
 	"github.com/gin-gonic/gin"
 )
@@ -13,6 +16,7 @@ const (
 	CookieAccess  = "access_token"
 	CookieRefresh = "refresh_token"
 	ctxUserID     = "userID"
+	ctxScope      = "projectScope"
 )
 
 // TokenVerifier はアクセストークンを検証して userID を返す（infra.JWTService 実装）。
@@ -30,14 +34,20 @@ type ActiveResolver interface {
 	IsActive(ctx context.Context, userID int) (bool, error)
 }
 
+// ScopeResolver はユーザーのロールから許可プロジェクト範囲を解決する（usecase.ScopeUsecase 実装）。
+type ScopeResolver interface {
+	ResolveProjectScope(ctx context.Context, userID int) (domain.ProjectScope, error)
+}
+
 type Middleware struct {
 	verifier  TokenVerifier
 	functions FunctionResolver
 	active    ActiveResolver
+	scope     ScopeResolver
 }
 
-func New(verifier TokenVerifier, functions FunctionResolver, active ActiveResolver) *Middleware {
-	return &Middleware{verifier: verifier, functions: functions, active: active}
+func New(verifier TokenVerifier, functions FunctionResolver, active ActiveResolver, scope ScopeResolver) *Middleware {
+	return &Middleware{verifier: verifier, functions: functions, active: active, scope: scope}
 }
 
 // Authenticate はアクセストークン（Cookie or Authorization ヘッダ）を検証し、
@@ -70,7 +80,7 @@ func (m *Middleware) Authenticate() gin.HandlerFunc {
 }
 
 // RequireFunction は指定した機能権限コードを保有していなければ 403 を返す。
-// スコープ制御（担当PJのみ等）は別のスコープミドルウェアで実装する。
+// スコープ制御（担当PJのみ等）は ResolveProjectScope で解決する。
 func (m *Middleware) RequireFunction(code string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := UserID(c)
@@ -83,13 +93,30 @@ func (m *Middleware) RequireFunction(code string) gin.HandlerFunc {
 			abort(c, http.StatusInternalServerError, "権限の確認に失敗しました")
 			return
 		}
-		for _, f := range fns {
-			if f == code {
-				c.Next()
-				return
-			}
+		if !slices.Contains(fns, code) {
+			abort(c, http.StatusForbidden, "この操作を行う権限がありません")
+			return
 		}
-		abort(c, http.StatusForbidden, "この操作を行う権限がありません")
+		c.Next()
+	}
+}
+
+// ResolveProjectScope はログインユーザーのロールから許可プロジェクト範囲を解決し、
+// コンテキストへ格納する。Authenticate の後段に置き、プロジェクト参照系エンドポイントに適用する。
+func (m *Middleware) ResolveProjectScope() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := UserID(c)
+		if userID == 0 {
+			abort(c, http.StatusUnauthorized, "認証が必要です")
+			return
+		}
+		scope, err := m.scope.ResolveProjectScope(c.Request.Context(), userID)
+		if err != nil {
+			abort(c, http.StatusInternalServerError, "権限の確認に失敗しました")
+			return
+		}
+		c.Set(ctxScope, scope)
+		c.Next()
 	}
 }
 
@@ -101,6 +128,17 @@ func UserID(c *gin.Context) int {
 		}
 	}
 	return 0
+}
+
+// ProjectScope はコンテキストから解決済みスコープを取得する。
+// ResolveProjectScope ミドルウェアを通っていない場合は ok=false。
+func ProjectScope(c *gin.Context) (domain.ProjectScope, bool) {
+	if v, ok := c.Get(ctxScope); ok {
+		if s, ok := v.(domain.ProjectScope); ok {
+			return s, true
+		}
+	}
+	return domain.ProjectScope{}, false
 }
 
 func extractToken(c *gin.Context) string {

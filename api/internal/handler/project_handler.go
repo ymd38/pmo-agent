@@ -34,7 +34,11 @@ type projectReq struct {
 }
 
 func (h *ProjectHandler) List(c *gin.Context) {
-	projects, err := h.uc.List(c.Request.Context())
+	scope, ok := requireScope(c)
+	if !ok {
+		return
+	}
+	projects, err := h.uc.List(c.Request.Context(), scope)
 	if err != nil {
 		respondError(c, err)
 		return
@@ -47,7 +51,11 @@ func (h *ProjectHandler) Get(c *gin.Context) {
 	if !ok {
 		return
 	}
-	p, err := h.uc.Get(c.Request.Context(), id)
+	scope, ok := requireScope(c)
+	if !ok {
+		return
+	}
+	p, err := h.uc.Get(c.Request.Context(), id, scope)
 	if err != nil {
 		respondError(c, err)
 		return

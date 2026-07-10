@@ -43,6 +43,7 @@ func buildContainer(opts ...dig.Option) (*dig.Container, error) {
 	provide(repository.NewRefreshTokenRepo, dig.As(new(usecase.RefreshTokenRepository)))
 	provide(repository.NewProgramRepo, dig.As(new(usecase.ProgramRepository)))
 	provide(repository.NewProjectRepo, dig.As(new(usecase.ProjectRepository)))
+	provide(repository.NewMemberRepo, dig.As(new(usecase.ProjectMemberRepository)))
 	provide(repository.NewAttributeRepo, dig.As(new(usecase.AttributeRepository)))
 
 	// ユースケース
@@ -51,6 +52,8 @@ func buildContainer(opts ...dig.Option) (*dig.Container, error) {
 	provide(usecase.NewCategoryUsecase)
 	provide(usecase.NewProgramUsecase)
 	provide(usecase.NewProjectUsecase)
+	provide(usecase.NewMemberUsecase)
+	provide(usecase.NewScopeUsecase, dig.As(new(middleware.ScopeResolver)))
 	provide(usecase.NewAttributeUsecase)
 
 	// ハンドラ・ミドルウェア・ルーター
@@ -60,6 +63,7 @@ func buildContainer(opts ...dig.Option) (*dig.Container, error) {
 	provide(handler.NewMetaHandler)
 	provide(handler.NewProgramHandler)
 	provide(handler.NewProjectHandler)
+	provide(handler.NewMemberHandler)
 	provide(handler.NewAttributeHandler)
 	provide(middleware.New)
 	provide(provideDeps)
@@ -111,12 +115,13 @@ func provideDeps(
 	meta *handler.MetaHandler,
 	program *handler.ProgramHandler,
 	project *handler.ProjectHandler,
+	member *handler.MemberHandler,
 	attribute *handler.AttributeHandler,
 	mw *middleware.Middleware,
 ) handler.Deps {
 	return handler.Deps{
 		Auth: auth, User: user, Category: cat, Meta: meta,
-		Program: program, Project: project, Attribute: attribute, MW: mw,
+		Program: program, Project: project, Member: member, Attribute: attribute, MW: mw,
 		AllowedOrigin: cfg.AppBaseURL,
 	}
 }

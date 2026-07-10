@@ -45,12 +45,24 @@ type UpdateProjectInput struct {
 	BacklogProjectID string
 }
 
-func (uc *ProjectUsecase) Get(ctx context.Context, id int) (*domain.Project, error) {
+// Get はスコープ内のプロジェクトのみ返す。担当外は存在秘匿のため ErrNotFound を返す
+// （Critical Business Rule: 担当外PJの予算・ベンダーを漏らさない）。
+func (uc *ProjectUsecase) Get(ctx context.Context, id int, scope domain.ProjectScope) (*domain.Project, error) {
+	if !scope.Allows(id) {
+		return nil, domain.ErrNotFound
+	}
 	return uc.projects.FindByID(ctx, id)
 }
 
-func (uc *ProjectUsecase) List(ctx context.Context) ([]domain.Project, error) {
-	return uc.projects.List(ctx)
+// List はスコープ内のプロジェクトのみ返す。All=false かつ許可PJが空なら空配列。
+func (uc *ProjectUsecase) List(ctx context.Context, scope domain.ProjectScope) ([]domain.Project, error) {
+	if scope.All {
+		return uc.projects.List(ctx)
+	}
+	if len(scope.ProjectIDs) == 0 {
+		return []domain.Project{}, nil
+	}
+	return uc.projects.ListByIDs(ctx, scope.ProjectIDs)
 }
 
 // Create はプログラム配下にプロジェクトを起案する（status=planning, project_code=nil）。

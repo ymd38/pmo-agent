@@ -75,6 +75,28 @@ func (uc *ProgramUsecase) GetDetail(ctx context.Context, id int) (*ProgramDetail
 	return &ProgramDetail{Program: *p, Aggregate: aggOrEmpty(aggs, id), Projects: projects}, nil
 }
 
+// ListProjectsScoped はプログラム配下プロジェクトのうち、スコープ内のものだけを返す
+// （GET /programs/:id/projects 用。担当外PJの予算・ベンダー漏洩を防ぐ）。
+func (uc *ProgramUsecase) ListProjectsScoped(ctx context.Context, programID int, scope domain.ProjectScope) ([]domain.Project, error) {
+	if _, err := uc.programs.FindByID(ctx, programID); err != nil {
+		return nil, err
+	}
+	projects, err := uc.projects.ListByProgram(ctx, programID)
+	if err != nil {
+		return nil, err
+	}
+	if scope.All {
+		return projects, nil
+	}
+	filtered := make([]domain.Project, 0, len(projects))
+	for _, p := range projects {
+		if scope.Allows(p.ID) {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered, nil
+}
+
 // Create は種別＋会計年度からプログラムを作成し、連番(seq_no)を自動採番する。
 // code は "種別-年度-連番(0埋め4桁)" で生成（例: INV-2026-0001）。
 func (uc *ProgramUsecase) Create(ctx context.Context, in CreateProgramInput) (*domain.Program, error) {

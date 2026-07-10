@@ -36,12 +36,41 @@ func (r *ProjectRepo) List(ctx context.Context) ([]domain.Project, error) {
 	return ps, nil
 }
 
+// ListByIDs は指定 ID 集合のプロジェクトを返す（スコープ制御のフィルタ用）。
+// 空スライスなら 1 件も返さない。
+func (r *ProjectRepo) ListByIDs(ctx context.Context, ids []int) ([]domain.Project, error) {
+	if len(ids) == 0 {
+		return []domain.Project{}, nil
+	}
+	var ps []domain.Project
+	if err := r.db.WithContext(ctx).Where("id IN ?", ids).Order("id").Find(&ps).Error; err != nil {
+		return nil, err
+	}
+	return ps, nil
+}
+
 func (r *ProjectRepo) ListByProgram(ctx context.Context, programID int) ([]domain.Project, error) {
 	var ps []domain.Project
 	if err := r.db.WithContext(ctx).Where("program_id = ?", programID).Order("branch_no, id").Find(&ps).Error; err != nil {
 		return nil, err
 	}
 	return ps, nil
+}
+
+// IDsByPM は pm_id が userID のプロジェクト ID を返す（スコープ解決: 担当PJ）。
+func (r *ProjectRepo) IDsByPM(ctx context.Context, userID int) ([]int, error) {
+	var ids []int
+	err := r.db.WithContext(ctx).Model(&domain.Project{}).
+		Where("pm_id = ?", userID).Pluck("id", &ids).Error
+	return ids, err
+}
+
+// IDsByCreator は created_by が userID のプロジェクト ID を返す（スコープ解決: 自起案PJ）。
+func (r *ProjectRepo) IDsByCreator(ctx context.Context, userID int) ([]int, error) {
+	var ids []int
+	err := r.db.WithContext(ctx).Model(&domain.Project{}).
+		Where("created_by = ?", userID).Pluck("id", &ids).Error
+	return ids, err
 }
 
 // Update は可変フィールドを更新する（program_id / branch_no / project_code は不変）。
