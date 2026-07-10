@@ -4,13 +4,17 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened]
     branches: [main]
+  issue_comment:
+    types: [created]
   workflow_dispatch:
 
 jobs:
   backend:
     name: Backend (Go)
     runs-on: ubuntu-latest
+    if: github.event_name != 'issue_comment'
     defaults:
       run:
         working-directory: api
@@ -39,6 +43,7 @@ jobs:
   frontend:
     name: Frontend (Nuxt / pmo-dashboard)
     runs-on: ubuntu-latest
+    if: github.event_name != 'issue_comment'
     defaults:
       run:
         working-directory: apps/pmo-dashboard
@@ -63,3 +68,46 @@ jobs:
 
       - name: Test
         run: npm run test
+
+  # PR 作成・更新時に自動でコードレビューを実行する（自リポジトリ発の PR のみ）。
+  pr-agent:
+    name: PR Agent
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Run PR Agent
+        uses: qodo-ai/pr-agent@009ba5a116c4d3273368a6dc53a4efdb7904d519 # main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
+          config.model: openai/gpt-5-codex
+
+  # PR コメントのスラッシュコマンド（/review, /improve, /describe 等）に応答する。
+  # 権限のあるメンバーのコメントのみ許可する。
+  pr-agent-slash-command:
+    name: PR Agent (Slash Command)
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request != null &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Run PR Agent (Slash Command)
+        uses: qodo-ai/pr-agent@009ba5a116c4d3273368a6dc53a4efdb7904d519 # main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
+          config.model: openai/gpt-5-codex
