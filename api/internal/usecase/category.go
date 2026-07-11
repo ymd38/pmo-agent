@@ -108,13 +108,9 @@ func (uc *CategoryUsecase) CreateValue(ctx context.Context, categoryID int, in V
 }
 
 func (uc *CategoryUsecase) UpdateValue(ctx context.Context, categoryID, valueID int, in ValueInput) (*domain.CategoryValue, error) {
-	vals, err := uc.repo.ListValues(ctx, categoryID, true)
+	v, err := uc.findValueInCategory(ctx, categoryID, valueID)
 	if err != nil {
 		return nil, err
-	}
-	v := findValue(vals, valueID)
-	if v == nil {
-		return nil, domain.ErrNotFound
 	}
 	if strings.TrimSpace(in.Label) == "" {
 		return nil, fmt.Errorf("%w: ラベルは必須です", domain.ErrValidation)
@@ -127,28 +123,40 @@ func (uc *CategoryUsecase) UpdateValue(ctx context.Context, categoryID, valueID 
 	return v, nil
 }
 
-func (uc *CategoryUsecase) DeactivateValue(ctx context.Context, valueID int) error {
+func (uc *CategoryUsecase) DeactivateValue(ctx context.Context, categoryID, valueID int) error {
+	if _, err := uc.findValueInCategory(ctx, categoryID, valueID); err != nil {
+		return err
+	}
 	return uc.repo.DeactivateValue(ctx, valueID)
 }
 
 // ReactivateValue は無効化した値を再有効化する（誤操作からの復帰用）。
-func (uc *CategoryUsecase) ReactivateValue(ctx context.Context, valueID int) error {
+func (uc *CategoryUsecase) ReactivateValue(ctx context.Context, categoryID, valueID int) error {
+	if _, err := uc.findValueInCategory(ctx, categoryID, valueID); err != nil {
+		return err
+	}
 	return uc.repo.ReactivateValue(ctx, valueID)
+}
+
+// findValueInCategory は valueID の値を取得し、指定カテゴリに所属することを検証する。
+// 既存値を対象とする全ミューテーション（Update/Deactivate/Reactivate）が通る単一経路。
+// 値が存在しない、または別カテゴリ所属なら ErrNotFound を返す
+// （別カテゴリの値の存在を呼び出し側に漏らさない＝存在秘匿）。
+func (uc *CategoryUsecase) findValueInCategory(ctx context.Context, categoryID, valueID int) (*domain.CategoryValue, error) {
+	v, err := uc.repo.FindValueByID(ctx, valueID)
+	if err != nil {
+		return nil, err
+	}
+	if v.CategoryID != categoryID {
+		return nil, domain.ErrNotFound
+	}
+	return v, nil
 }
 
 func findCategory(cats []domain.Category, id int) *domain.Category {
 	for i := range cats {
 		if cats[i].ID == id {
 			return &cats[i]
-		}
-	}
-	return nil
-}
-
-func findValue(vals []domain.CategoryValue, id int) *domain.CategoryValue {
-	for i := range vals {
-		if vals[i].ID == id {
-			return &vals[i]
 		}
 	}
 	return nil
