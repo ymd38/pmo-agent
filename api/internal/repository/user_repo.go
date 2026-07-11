@@ -56,7 +56,8 @@ func (r *UserRepo) Create(ctx context.Context, u *domain.User, roleIDs []int) er
 }
 
 func (r *UserRepo) Update(ctx context.Context, u *domain.User, roleIDs []int) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	// Create と対称に、重複 role_ids による user_roles PK 違反も ErrConflict(409) へ写像する。
+	return wrapConflict(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// password_hash には触れない。name/grade/is_active のみ更新。
 		if err := tx.Model(&domain.User{}).Where("id = ?", u.ID).
 			Select("name", "grade", "is_active").
@@ -67,7 +68,7 @@ func (r *UserRepo) Update(ctx context.Context, u *domain.User, roleIDs []int) er
 			return err
 		}
 		return insertUserRoles(tx, u.ID, roleIDs)
-	})
+	}))
 }
 
 func (r *UserRepo) UpdatePasswordHash(ctx context.Context, userID int, hash string) error {

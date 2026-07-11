@@ -4,6 +4,14 @@
 
 ## 2026-07-11
 
+### 意思決定 / 変更内容（一意制約・FK違反の 409/404 マッピング — Issue #5）
+
+- **修正は repository 層に限定**。`handler/response.go` は既に `domain.ErrConflict→409` / `ErrNotFound→404` を写像済みで、原因は一部 repo が `wrapConflict` を通していなかったこと（DBエラーが 500 露出）。handler / usecase の写像は正しいため触らない（層分離）。
+- **Create/Assign を `wrapConflict` 経由に統一**: `category_repo`(CreateCategory/CreateValue)・`attribute_repo`(Assign)。他 repo の Create と同一流儀（DRY）。
+- **`user_repo.Update` は Create と対称に Transaction 全体を `wrapConflict` でラップ**。重複 role_ids `[1,1]` による user_roles PK 違反(1062)を 409 に。**role_ids の事前 dedup は行わない**（Create が現状 409 を返すのと挙動を揃える対称性優先・KISS。dedup はリクエスト正規化として別レイヤの別課題。厳密には同一リクエスト内重複は 400 が妥当だが本 Issue の趣旨「DBエラーの HTTP マッピング」に絞る）。
+- **`program_repo.Delete` を FK RESTRICT(1451)→409・RowsAffected=0→404 に**。`errors.go` に定数 `mysqlRowIsReferenced=1451`(ER_ROW_IS_REFERENCED_2) と `isForeignKeyViolation` ヘルパを追加し、`fmt.Errorf("%w: 配下にプロジェクトが存在するため削除できません", domain.ErrConflict)` で利用者が原因を理解できるメッセージに。usecase `ProgramUsecase.Delete` は既に FindByID(404)/CountByProgram(409) でガード済みで、repo 修正は count 後の同時 INSERT（TOCTOU）に対する多層防御。
+- **テスト戦略**: sqlmock/testcontainers 等の DB モック基盤が無いため、repository 層のエラーマッピングは `errors_test.go` の単体テストで保護（`wrapConflict` 既存＋`isForeignKeyViolation` 新規をテーブル駆動で）。Create/Assign/Update のラップは `wrapConflict` の振る舞いで、Program Delete の 404/409 境界は既存 usecase fake テストで担保。`GOTOOLCHAIN=go1.25.12 go test -race ./...` / `golangci-lint run ./...` 0 issues。
+
 ### 意思決定 / 変更内容（認証エンドポイントのレート制限＋タイミング平準化 — Issue #7）
 
 - **レート制限はインメモリ実装**（`middleware.RateLimiter`）。`golang.org/x/time/rate` の `rate.Limiter` を key（クライアントIP）ごとに map で保持。フェーズ1は単一インスタンス前提のため Redis 等の外部ストアは持たない（YAGNI）。エントリは最終アクセスから `staleTTL`(10m) 超過で破棄（毎リクエスト線形走査で map 無限増加を防止。認証系は低頻度のため十分軽量）。
