@@ -231,6 +231,22 @@ func TestAuthUsecase_Refresh_Validation(t *testing.T) {
 			assert.Equal(t, tt.wantChainKill, ref.revokedUser[1], "チェーン全失効の有無")
 		})
 	}
+
+	// チェーン全失効の失敗を握りつぶすと、侵害が疑われるトークンが生き残ったまま
+	// 正常系エラー（ErrTokenReuse=401）に見えてしまう。失敗は必ず伝播させる。
+	t.Run("チェーン全失効の失敗は ErrTokenReuse に化けず伝播する", func(t *testing.T) {
+		users := newFakeUserRepo()
+		users.add(&domain.User{ID: 1, Email: "u@x.jp", PasswordHash: mustHash(t, testPassword), IsActive: true})
+		ref := newFakeRefreshRepo()
+		ref.seed(&domain.RefreshToken{ID: 1, UserID: 1, TokenHash: "h:revoked", ExpiresAt: now.Add(time.Hour), RevokedAt: &now})
+		ref.revokeAllErr = errors.New("db down")
+		uc := newAuthUC(users, newFakeSetTokenRepo(), ref)
+
+		_, err := uc.Refresh(context.Background(), "revoked")
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, domain.ErrTokenReuse)
+		assert.ErrorIs(t, err, ref.revokeAllErr)
+	})
 }
 
 // TestAuthUsecase_Refresh_ConcurrentReplay は同一トークンの並行リプレイで

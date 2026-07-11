@@ -86,7 +86,9 @@ func (uc *AuthUsecase) Refresh(ctx context.Context, refreshPlain string) (Tokens
 	}
 	// 再利用検知(1): 失効済みトークンの再提示はチェーン侵害の兆候。全セッションを失効させる。
 	if rt.RevokedAt != nil {
-		_ = uc.refToks.RevokeAllForUser(ctx, rt.UserID)
+		if err := uc.refToks.RevokeAllForUser(ctx, rt.UserID); err != nil {
+			return Tokens{}, fmt.Errorf("usecase.Refresh revokeAll: %w", err)
+		}
 		return Tokens{}, domain.ErrTokenReuse
 	}
 	if !rt.IsUsable(uc.now()) { // ここに到達するのは期限切れのみ。
@@ -104,7 +106,9 @@ func (uc *AuthUsecase) Refresh(ctx context.Context, refreshPlain string) (Tokens
 	if err := uc.refToks.Rotate(ctx, rt.ID, newRT); err != nil {
 		// 再利用検知(2): CAS 敗北 = 並行リプレイ。チェーンを全失効させる。
 		if errors.Is(err, domain.ErrTokenReuse) {
-			_ = uc.refToks.RevokeAllForUser(ctx, rt.UserID)
+			if chainErr := uc.refToks.RevokeAllForUser(ctx, rt.UserID); chainErr != nil {
+				return Tokens{}, fmt.Errorf("usecase.Refresh reuse revokeAll: %w", chainErr)
+			}
 			return Tokens{}, domain.ErrTokenReuse
 		}
 		return Tokens{}, fmt.Errorf("usecase.Refresh rotate: %w", err)

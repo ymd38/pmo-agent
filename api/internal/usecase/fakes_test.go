@@ -116,12 +116,13 @@ func (f *fakeSetTokenRepo) InvalidateForUser(_ context.Context, userID int) erro
 // fakeRefreshRepo は DB のアトミックCASを mutex で模擬する。並行リプレイテスト用に
 // Rotate / Revoke は revoked 状態を検査してから更新し、1度しか成功しない。
 type fakeRefreshRepo struct {
-	mu          sync.Mutex
-	byHash      map[string]*domain.RefreshToken
-	byID        map[int]*domain.RefreshToken
-	revoked     map[int]bool
-	revokedUser map[int]bool
-	seq         int
+	mu           sync.Mutex
+	byHash       map[string]*domain.RefreshToken
+	byID         map[int]*domain.RefreshToken
+	revoked      map[int]bool
+	revokedUser  map[int]bool
+	seq          int
+	revokeAllErr error // RevokeAllForUser の失敗注入用
 }
 
 func newFakeRefreshRepo() *fakeRefreshRepo {
@@ -198,6 +199,9 @@ func (f *fakeRefreshRepo) Rotate(_ context.Context, oldID int, newTok *domain.Re
 func (f *fakeRefreshRepo) RevokeAllForUser(_ context.Context, userID int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.revokeAllErr != nil {
+		return f.revokeAllErr
+	}
 	f.revokedUser[userID] = true
 	for id, t := range f.byID {
 		if t.UserID == userID {
