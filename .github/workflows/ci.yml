@@ -89,6 +89,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
           config.model: openai/gpt-5-codex
+          # PR Agent の MAX_TOKENS レジストリに無いモデルは上限の明示が必須（無いと即エラー→fallback）
+          config.custom_model_max_tokens: "200000"
 
   # PR コメントのスラッシュコマンド（/review, /improve, /describe 等）に応答する。
   # 権限のあるメンバーのコメントのみ許可する。
@@ -111,3 +113,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
           config.model: openai/gpt-5-codex
+          # PR Agent の MAX_TOKENS レジストリに無いモデルは上限の明示が必須（無いと即エラー→fallback）
+          config.custom_model_max_tokens: "200000"

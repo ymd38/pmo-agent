@@ -15,6 +15,7 @@
 
 ### 意思決定（CI/インフラ）
 
+- **PR Agent は `config.model` だけでは動かない — `config.custom_model_max_tokens` が必須**。`openai/gpt-5-codex` は PR Agent 内部の MAX_TOKENS レジストリ未定義のため、上限未指定だと毎回エラー → fallback(`gpt-5.4-mini`) に落ち、code suggestions は「Failed to generate code suggestions for PR」で失敗していた（コミット 5bda3e7「モデル制御」は実質未機能だった）。ci.yml の両ジョブに `config.custom_model_max_tokens: "200000"` を追加して解消（PR #15・マージ済み）。
 - **govulncheck fail は go.mod のツールチェーン更新で解消**（PR #13 で表面化）。検出26件は全て PR コード起因ではなく、`go 1.25.0` 宣言の標準ライブラリ25件（最遅 fix は go1.25.12）＋間接依存 quic-go v0.59.0 の1件。`go 1.25.12` へ更新し quic-go を v0.59.1 に上げて解消。CI は `go-version-file: api/go.mod` 参照のため go.mod の1箇所更新で完結。1PR=1目的の規約に従い PR #13 とは別の chore PR として対応（PR #14・マージ済み）。
 
 ### 変更内容
