@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"sort"
 	"testing"
 
 	"pmo-agent/api/internal/domain"
@@ -80,9 +81,27 @@ func (f *fakeProjectRepo) FindByID(_ context.Context, id int) (*domain.Project, 
 	}
 	return nil, domain.ErrNotFound
 }
-func (f *fakeProjectRepo) List(_ context.Context) ([]domain.Project, error) { return nil, nil }
-func (f *fakeProjectRepo) ListByProgram(_ context.Context, _ int) ([]domain.Project, error) {
-	return nil, nil
+func (f *fakeProjectRepo) List(_ context.Context) ([]domain.Project, error) {
+	return f.sortedWhere(func(*domain.Project) bool { return true }), nil
+}
+func (f *fakeProjectRepo) ListByProgram(_ context.Context, programID int) ([]domain.Project, error) {
+	return f.sortedWhere(func(p *domain.Project) bool { return p.ProgramID == programID }), nil
+}
+
+// sortedWhere は述語に一致するプロジェクトを ID 昇順で返す（実 DB の Order("id") 相当）。
+func (f *fakeProjectRepo) sortedWhere(pred func(*domain.Project) bool) []domain.Project {
+	ids := make([]int, 0, len(f.byID))
+	for id := range f.byID {
+		if pred(f.byID[id]) {
+			ids = append(ids, id)
+		}
+	}
+	sort.Ints(ids)
+	out := make([]domain.Project, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, *f.byID[id])
+	}
+	return out
 }
 func (f *fakeProjectRepo) Update(_ context.Context, p *domain.Project) error {
 	f.byID[p.ID] = p
@@ -273,5 +292,36 @@ func TestProgramUsecase_Create_AutoNumbering(t *testing.T) {
 	t.Run("会計年度が範囲外は ErrValidation", func(t *testing.T) {
 		_, err := guc.Create(ctx, CreateProgramInput{Type: "INV", FiscalYear: 1800, Name: "X"})
 		assert.ErrorIs(t, err, domain.ErrValidation)
+	})
+}
+
+func TestProgramUsecase_ListProjectsScoped(t *testing.T) {
+	ctx := context.Background()
+	programs := newFakeProgramRepo()
+	projects := newFakeProjectRepo()
+	require.NoError(t, programs.Create(ctx, &domain.Program{Code: "INV-2026-0001", Name: "P"}))
+	guc := NewProgramUsecase(programs, projects)
+	puc := NewProjectUsecase(projects, programs)
+	for range 3 {
+		_, err := puc.Create(ctx, 1, CreateProjectInput{Name: "PJ"})
+		require.NoError(t, err)
+	}
+
+	t.Run("All スコープは配下全件", func(t *testing.T) {
+		got, err := guc.ListProjectsScoped(ctx, 1, domain.UnrestrictedScope())
+		require.NoError(t, err)
+		assert.Len(t, got, 3)
+	})
+
+	t.Run("限定スコープは担当PJのみ", func(t *testing.T) {
+		got, err := guc.ListProjectsScoped(ctx, 1, domain.ProjectScope{ProjectIDs: []int{2}})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, 2, got[0].ID)
+	})
+
+	t.Run("存在しないプログラムは ErrNotFound", func(t *testing.T) {
+		_, err := guc.ListProjectsScoped(ctx, 999, domain.UnrestrictedScope())
+		assert.ErrorIs(t, err, domain.ErrNotFound)
 	})
 }

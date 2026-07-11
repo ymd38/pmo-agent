@@ -39,17 +39,22 @@ func (h *ProgramHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, detail)
 }
 
+// ListProjects は GET /programs/:id/projects。担当PJスコープでフィルタする。
 func (h *ProgramHandler) ListProjects(c *gin.Context) {
 	id, ok := pathID(c)
 	if !ok {
 		return
 	}
-	detail, err := h.uc.GetDetail(c.Request.Context(), id)
+	scope, ok := requireScope(c)
+	if !ok {
+		return
+	}
+	projects, err := h.uc.ListProjectsScoped(c.Request.Context(), id, scope)
 	if err != nil {
 		respondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"projects": detail.Projects})
+	c.JSON(http.StatusOK, gin.H{"projects": projects})
 }
 
 func (h *ProgramHandler) Create(c *gin.Context) {

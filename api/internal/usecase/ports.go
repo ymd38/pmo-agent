@@ -78,6 +78,7 @@ type ProjectRepository interface {
 	Create(ctx context.Context, p *domain.Project) error
 	FindByID(ctx context.Context, id int) (*domain.Project, error)
 	List(ctx context.Context) ([]domain.Project, error)
+	ListByIDs(ctx context.Context, ids []int) ([]domain.Project, error)
 	ListByProgram(ctx context.Context, programID int) ([]domain.Project, error)
 	Update(ctx context.Context, p *domain.Project) error
 	Delete(ctx context.Context, id int) error
@@ -85,6 +86,20 @@ type ProjectRepository interface {
 	MaxBranchNo(ctx context.Context, programID int) (int, error)
 	IssueCode(ctx context.Context, projectID, branchNo int, code string) error
 	AggregateByProgram(ctx context.Context) (map[int]domain.ProgramAggregate, error)
+	// IDsByPM / IDsByCreator はスコープ解決（担当PJ / 自起案PJ）で使う逆引き。
+	IDsByPM(ctx context.Context, userID int) ([]int, error)
+	IDsByCreator(ctx context.Context, userID int) ([]int, error)
+}
+
+// ProjectMemberRepository はプロジェクトへのメンバーアサインを永続化する。
+type ProjectMemberRepository interface {
+	ListByProject(ctx context.Context, projectID int) ([]domain.ProjectMember, error)
+	Assign(ctx context.Context, m *domain.ProjectMember) error
+	Update(ctx context.Context, m *domain.ProjectMember) error
+	// Unassign はアサインを物理削除する（対象が無ければ ErrNotFound）。
+	Unassign(ctx context.Context, projectID, userID int) error
+	// ProjectIDsByUser はスコープ解決で使う「担当PJ集合」の逆引き。
+	ProjectIDsByUser(ctx context.Context, userID int) ([]int, error)
 }
 
 // Hasher は bcrypt 実装（infra.PasswordHasher）。

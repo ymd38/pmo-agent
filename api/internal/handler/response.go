@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"pmo-agent/api/internal/domain"
+	"pmo-agent/api/internal/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,4 +26,16 @@ func respondError(c *gin.Context, err error) {
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "サーバー内部エラーが発生しました"})
 	}
+}
+
+// requireScope はスコープミドルウェアが解決したプロジェクト範囲を取得する。
+// ミドルウェア未適用（コンテキスト未設定）の場合は 500 を返し ok=false。
+// ルーティング構成ミスによる「スコープ未適用のまま全件返却」を防ぐフェイルセーフ。
+func requireScope(c *gin.Context) (domain.ProjectScope, bool) {
+	scope, ok := middleware.ProjectScope(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "サーバー内部エラーが発生しました"})
+		return domain.ProjectScope{}, false
+	}
+	return scope, true
 }

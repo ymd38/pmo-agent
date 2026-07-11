@@ -16,6 +16,7 @@ type Deps struct {
 	Meta          *MetaHandler
 	Program       *ProgramHandler
 	Project       *ProjectHandler
+	Member        *MemberHandler
 	Attribute     *AttributeHandler
 	MW            *middleware.Middleware
 	AllowedOrigin string
@@ -60,15 +61,21 @@ func NewEngine(d Deps) *gin.Engine {
 		auth.GET("/programs/:id", d.MW.RequireFunction("view_project_detail"), d.Program.Get)
 		auth.PUT("/programs/:id", d.MW.RequireFunction("issue_project_code"), d.Program.Update)
 		auth.DELETE("/programs/:id", d.MW.RequireFunction("issue_project_code"), d.Program.Delete)
-		auth.GET("/programs/:id/projects", d.MW.RequireFunction("view_project_detail"), d.Program.ListProjects)
+		auth.GET("/programs/:id/projects", d.MW.RequireFunction("view_project_detail"), d.MW.ResolveProjectScope(), d.Program.ListProjects)
 		auth.POST("/programs/:id/projects", d.MW.RequireFunction("manage_projects"), d.Project.CreateUnderProgram)
 
-		// プロジェクト管理
-		auth.GET("/projects", d.MW.RequireFunction("view_project_detail"), d.Project.List)
-		auth.GET("/projects/:id", d.MW.RequireFunction("view_project_detail"), d.Project.Get)
+		// プロジェクト管理（参照系は担当PJスコープを適用）
+		auth.GET("/projects", d.MW.RequireFunction("view_project_detail"), d.MW.ResolveProjectScope(), d.Project.List)
+		auth.GET("/projects/:id", d.MW.RequireFunction("view_project_detail"), d.MW.ResolveProjectScope(), d.Project.Get)
 		auth.PUT("/projects/:id", d.MW.RequireFunction("manage_projects"), d.Project.Update)
 		auth.DELETE("/projects/:id", d.MW.RequireFunction("manage_projects"), d.Project.Delete)
 		auth.POST("/projects/:id/issue-code", d.MW.RequireFunction("issue_project_code"), d.Project.IssueCode)
+
+		// プロジェクトメンバー（担当PJスコープを適用。参照は view_project_detail、変更は assign_project_members）
+		auth.GET("/projects/:id/members", d.MW.RequireFunction("view_project_detail"), d.MW.ResolveProjectScope(), d.Member.List)
+		auth.POST("/projects/:id/members", d.MW.RequireFunction("assign_project_members"), d.MW.ResolveProjectScope(), d.Member.Assign)
+		auth.PUT("/projects/:id/members/:userId", d.MW.RequireFunction("assign_project_members"), d.MW.ResolveProjectScope(), d.Member.Update)
+		auth.DELETE("/projects/:id/members/:userId", d.MW.RequireFunction("assign_project_members"), d.MW.ResolveProjectScope(), d.Member.Delete)
 
 		// プロジェクト属性（参照は view_project_detail、変更は manage_projects）
 		auth.GET("/projects/:id/attributes", d.MW.RequireFunction("view_project_detail"), d.Attribute.List)
