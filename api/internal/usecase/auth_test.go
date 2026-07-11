@@ -136,32 +136,55 @@ func TestAuthUsecase_SetPassword(t *testing.T) {
 		err := uc.SetPassword(context.Background(), "expired", "newpassword")
 		assert.ErrorIs(t, err, domain.ErrTokenInvalid)
 	})
+
+	t.Run("セッション失効の失敗はエラーとして伝播する", func(t *testing.T) {
+		uc, _, set, ref := setup()
+		validToken(set)
+		ref.revokeAllErr = errors.New("db down")
+		err := uc.SetPassword(context.Background(), "tok", "newpassword")
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "revokeAll")
+	})
 }
 
 func TestAuthUsecase_ChangePassword(t *testing.T) {
-	setup := func() (*AuthUsecase, *fakeUserRepo) {
+	setup := func() (*AuthUsecase, *fakeUserRepo, *fakeRefreshRepo) {
 		users := newFakeUserRepo()
 		users.add(&domain.User{ID: 1, Email: "u@x.jp", PasswordHash: mustHash(t, "current-pass"), IsActive: true})
-		return newAuthUC(users, newFakeSetTokenRepo(), newFakeRefreshRepo()), users
+		ref := newFakeRefreshRepo()
+		return newAuthUC(users, newFakeSetTokenRepo(), ref), users, ref
 	}
 
-	t.Run("現パスワード一致で変更成功", func(t *testing.T) {
-		uc, users := setup()
+	t.Run("現パスワード一致で変更成功し既存セッションが失効する", func(t *testing.T) {
+		uc, users, ref := setup()
+		// 変更前に発行済みの（盗用され得る）リフレッシュトークンを投入する。
+		ref.seed(&domain.RefreshToken{ID: 7, UserID: 1, TokenHash: "h:stolen", ExpiresAt: time.Now().Add(time.Hour)})
 		err := uc.ChangePassword(context.Background(), 1, "current-pass", "newpassword")
 		require.NoError(t, err)
 		assert.NotEmpty(t, users.hashSet[1])
+		assert.True(t, ref.revokedUser[1], "パスワード変更後に既存セッションが全失効する")
+		assert.True(t, ref.revoked[7], "変更前に発行済みのリフレッシュトークンが失効する")
 	})
 
 	t.Run("現パスワード不一致は ErrInvalidCredentials", func(t *testing.T) {
-		uc, _ := setup()
+		uc, _, ref := setup()
 		err := uc.ChangePassword(context.Background(), 1, "wrong", "newpassword")
 		assert.ErrorIs(t, err, domain.ErrInvalidCredentials)
+		assert.False(t, ref.revokedUser[1], "認証失敗時はセッションを失効させない")
 	})
 
 	t.Run("新パスワードが短いと ErrValidation", func(t *testing.T) {
-		uc, _ := setup()
+		uc, _, _ := setup()
 		err := uc.ChangePassword(context.Background(), 1, "current-pass", "short")
 		assert.ErrorIs(t, err, domain.ErrValidation)
+	})
+
+	t.Run("セッション失効の失敗はエラーとして伝播する", func(t *testing.T) {
+		uc, _, ref := setup()
+		ref.revokeAllErr = errors.New("db down")
+		err := uc.ChangePassword(context.Background(), 1, "current-pass", "newpassword")
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "revokeAll")
 	})
 }
 

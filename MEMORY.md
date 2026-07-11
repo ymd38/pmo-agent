@@ -4,6 +4,14 @@
 
 ## 2026-07-11
 
+### 意思決定 / 変更内容（パスワード変更時のトークン失効 — Issue #3）
+
+- **`ChangePassword` 成功後に `refToks.RevokeAllForUser` を呼び既存セッションを全失効**させる。トークン窃取後に被害者がパスワードを変更しても盗まれたリフレッシュトークンが最大7日間有効なままになる穴を塞ぐ。関連コミットは本 Issue #3 ブランチ。
+- **失効失敗は `_ =` で握りつぶさずエラー伝播**（`fmt.Errorf("usecase.ChangePassword revokeAll: %w", err)`）。PR #16 レビューの「セキュリティ制御の silent failure は不可」指摘に倣う。
+- **同一クラスの `SetPassword` に残っていた `_ = uc.refToks.RevokeAllForUser(...)` の握りつぶしも同 PR でエラー伝播に統一**（1行修正・関連性が高いため）。
+- テスト: `TestAuthUsecase_ChangePassword` に「変更成功で既存トークンが失効」「失効失敗はエラー伝播」ケースを追加。`SetPassword` にも失効失敗ケースを追加。既存フェイク（`fakeRefreshRepo.revokedUser` / `revokeAllErr`）で足りるため `fakes_test.go` は無変更（PR #16 とのコンフリクト回避）。`GOTOOLCHAIN=go1.25.12 go test -race ./...` / `golangci-lint run ./...` 0 issues。
+
+
 ### 意思決定（リフレッシュトークン再利用検知 — Issue #2 実装）
 
 - **ローテーションのトランザクション境界は repository（`RefreshTokenRepo.Rotate`）に置く**。旧失効＋新規発行という複合 DB 操作の原子性は「DBアクセスの詳細」と判断し GORM の `Transaction` を repository 内に閉じた。usecase は「再利用検知 → チェーン全失効」という**ビジネス判断**のみ保持（層分離を維持）。汎用 TxManager 抽象は現状 tx 基盤が無く YAGNI/KISS に反するため導入せず。
