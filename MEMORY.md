@@ -13,6 +13,10 @@
 - スコープ規則: pmo_admin/executive=全件、pm/member=`project_members ∪ projects.pm_id`、planner=`created_by`。複数ロールは和集合。
 - `requireScope` はミドルウェア未適用時に 500 を返すフェイルセーフ（ルーティング構成ミスで全件返却する事故を防ぐ）。
 
+### 意思決定（CI/インフラ）
+
+- **govulncheck fail は go.mod のツールチェーン更新で解消**（PR #13 で表面化）。検出26件は全て PR コード起因ではなく、`go 1.25.0` 宣言の標準ライブラリ25件（最遅 fix は go1.25.12）＋間接依存 quic-go v0.59.0 の1件。`go 1.25.12` へ更新し quic-go を v0.59.1 に上げて解消。CI は `go-version-file: api/go.mod` 参照のため go.mod の1箇所更新で完結。1PR=1目的の規約に従い PR #13 とは別の chore PR として対応（PR #14・マージ済み）。
+
 ### 変更内容
 
 - `db/migrations/000006_project_members` 追加（SPEC.md:430 準拠。`user_id` FK は `ON DELETE RESTRICT`、スコープ逆引き用 `idx_member_user`）。`make migrate-up`/`migrate-down` の往復適用を確認。
@@ -46,4 +50,5 @@
 ### 気付き
 
 - **担当PJスコープの単体テストは fake repo で完結**。`fakeProjectRepo` は map 実装のため `List` は ID 昇順で返すよう `sortedWhere` を追加（実 DB の `Order("id")` と挙動を揃えないと List/scope テストが不安定になる）。
-- **ローカルツールチェーンが壊れている**。Go: `/usr/local/go` の `go`(1.26.2) と同梱 `compile`(1.24.0) が不整合で stdlib すらビルド不可 → `GOTOOLCHAIN=go1.25.0 go test -race ./...` で回避。フロント: PATH 先頭の `node` が v0.10.25 と古く `vitest: command not found` → nvm の Node 22（`~/.nvm/versions/node/v22.14.0/bin`）を使う。
+- **ローカルツールチェーンが壊れている**。Go: `/usr/local/go` の `go`(1.26.2) と同梱 `compile`(1.24.0) が不整合で stdlib すらビルド不可 → `GOTOOLCHAIN=go1.25.12 go test -race ./...` で回避（go.mod のツールチェーン更新に合わせて 1.25.0→1.25.12）。フロント: PATH 先頭の `node` が v0.10.25 と古く `vitest: command not found` → nvm の Node 22（`~/.nvm/versions/node/v22.14.0/bin`）を使う。
+- セッション開始時、リポジトリはほぼ未コミット（`first commit` は README のみ、全コードが untracked）だった。`main` へのマージは実質「初期インポートのコミット」を伴った。
