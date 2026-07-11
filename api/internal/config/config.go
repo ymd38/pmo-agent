@@ -43,17 +43,28 @@ func Load() (Config, error) {
 
 	// プール設定は未設定なら安全な既定値を使うが、設定された値が不正な場合は
 	// 黙って既定へフォールバックせずエラーにする（設定ミスの気付きを早める）。
+	// 負数は database/sql が「無制限・無期限」と解釈するため、プール制限を
+	// 目的とする本設定では設定ミスとして拒否する。
 	maxOpen, err := envInt("DB_MAX_OPEN_CONNS", 25)
 	if err != nil {
 		return Config{}, err
+	}
+	if maxOpen < 0 {
+		return Config{}, errors.New("環境変数 DB_MAX_OPEN_CONNS は 0 以上である必要があります")
 	}
 	maxIdle, err := envInt("DB_MAX_IDLE_CONNS", 25)
 	if err != nil {
 		return Config{}, err
 	}
+	if maxIdle < 0 {
+		return Config{}, errors.New("環境変数 DB_MAX_IDLE_CONNS は 0 以上である必要があります")
+	}
 	connMaxLifetime, err := envDurationStrict("DB_CONN_MAX_LIFETIME", 5*time.Minute)
 	if err != nil {
 		return Config{}, err
+	}
+	if connMaxLifetime < 0 {
+		return Config{}, errors.New("環境変数 DB_CONN_MAX_LIFETIME は 0 以上である必要があります")
 	}
 
 	return Config{

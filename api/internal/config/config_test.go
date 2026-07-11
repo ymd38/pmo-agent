@@ -92,6 +92,22 @@ func TestLoad_DBPool(t *testing.T) {
 			env:     map[string]string{"DB_CONN_MAX_LIFETIME": "5minutes"},
 			wantErr: true,
 		},
+		// 負数は database/sql が「無制限・無期限」と解釈するため設定ミスとして拒否する。
+		{
+			name:    "DB_MAX_OPEN_CONNS が負数ならエラー（黙って無制限にしない）",
+			env:     map[string]string{"DB_MAX_OPEN_CONNS": "-1"},
+			wantErr: true,
+		},
+		{
+			name:    "DB_MAX_IDLE_CONNS が負数ならエラー",
+			env:     map[string]string{"DB_MAX_IDLE_CONNS": "-5"},
+			wantErr: true,
+		},
+		{
+			name:    "DB_CONN_MAX_LIFETIME が負の継続時間ならエラー（黙って無期限にしない）",
+			env:     map[string]string{"DB_CONN_MAX_LIFETIME": "-5m"},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
