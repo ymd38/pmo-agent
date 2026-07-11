@@ -16,6 +16,12 @@ type Config struct {
 	DBPassword string
 	DBName     string
 
+	// コネクションプール設定。無制限接続による max_connections 枯渇と、
+	// wait_timeout 経過後の死んだ接続の再利用（invalid connection）を防ぐ。
+	DBMaxOpenConns    int
+	DBMaxIdleConns    int
+	DBConnMaxLifetime time.Duration
+
 	JWTSecret       string
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
@@ -34,19 +40,38 @@ func Load() (Config, error) {
 	if secret == "" {
 		return Config{}, errors.New("環境変数 JWT_SECRET が未設定です。十分にランダムな文字列を設定してください")
 	}
+
+	// プール設定は未設定なら安全な既定値を使うが、設定された値が不正な場合は
+	// 黙って既定へフォールバックせずエラーにする（設定ミスの気付きを早める）。
+	maxOpen, err := envInt("DB_MAX_OPEN_CONNS", 25)
+	if err != nil {
+		return Config{}, err
+	}
+	maxIdle, err := envInt("DB_MAX_IDLE_CONNS", 25)
+	if err != nil {
+		return Config{}, err
+	}
+	connMaxLifetime, err := envDurationStrict("DB_CONN_MAX_LIFETIME", 5*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
-		DBHost:          env("DB_HOST", "localhost"),
-		DBPort:          env("DB_PORT", "3306"),
-		DBUser:          env("DB_USER", "root"),
-		DBPassword:      env("DB_PASSWORD", "root"),
-		DBName:          env("DB_NAME", "pmo"),
-		JWTSecret:       secret,
-		AccessTokenTTL:  envDuration("ACCESS_TOKEN_TTL", 8*time.Hour),
-		RefreshTokenTTL: envDuration("REFRESH_TOKEN_TTL", 7*24*time.Hour),
-		SetTokenTTL:     envDuration("SET_TOKEN_TTL", 72*time.Hour),
-		AppBaseURL:      env("APP_BASE_URL", "http://localhost:3000"),
-		Port:            env("PORT", "8080"),
-		CookieSecure:    envBool("COOKIE_SECURE", true),
+		DBHost:            env("DB_HOST", "localhost"),
+		DBPort:            env("DB_PORT", "3306"),
+		DBUser:            env("DB_USER", "root"),
+		DBPassword:        env("DB_PASSWORD", "root"),
+		DBName:            env("DB_NAME", "pmo"),
+		DBMaxOpenConns:    maxOpen,
+		DBMaxIdleConns:    maxIdle,
+		DBConnMaxLifetime: connMaxLifetime,
+		JWTSecret:         secret,
+		AccessTokenTTL:    envDuration("ACCESS_TOKEN_TTL", 8*time.Hour),
+		RefreshTokenTTL:   envDuration("REFRESH_TOKEN_TTL", 7*24*time.Hour),
+		SetTokenTTL:       envDuration("SET_TOKEN_TTL", 72*time.Hour),
+		AppBaseURL:        env("APP_BASE_URL", "http://localhost:3000"),
+		Port:              env("PORT", "8080"),
+		CookieSecure:      envBool("COOKIE_SECURE", true),
 	}, nil
 }
 
@@ -72,6 +97,32 @@ func envDuration(key string, fallback time.Duration) time.Duration {
 		}
 	}
 	return fallback
+}
+
+// envDurationStrict は未設定なら fallback を返し、設定済みで不正な値ならエラーを返す。
+func envDurationStrict(key string, fallback time.Duration) (time.Duration, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("環境変数 %s は継続時間（例: 5m）である必要があります: %w", key, err)
+	}
+	return d, nil
+}
+
+// envInt は未設定なら fallback を返し、設定済みで不正な値ならエラーを返す。
+func envInt(key string, fallback int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("環境変数 %s は整数である必要があります: %w", key, err)
+	}
+	return n, nil
 }
 
 func envBool(key string, fallback bool) bool {

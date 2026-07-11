@@ -4,6 +4,14 @@
 
 ## 2026-07-11
 
+### 意思決定 / 変更内容（DBコネクションプール設定 — Issue #4）
+
+- **プール3設定（`SetMaxOpenConns`/`SetMaxIdleConns`/`SetConnMaxLifetime`）を `infra.NewDB` で `db.DB()` から適用**。無制限接続による `max_connections` 枯渇と、MySQL `wait_timeout`(既定8h)経過後の死んだ接続再利用（`invalid connection`）を塞ぐ。値は既存 config パターンに合わせ env 化（`DB_MAX_OPEN_CONNS`/`DB_MAX_IDLE_CONNS`/`DB_CONN_MAX_LIFETIME`）。デフォルトは open=25 / idle=25 / lifetime=5m（wait_timeout より十分短い）。
+- **新 env の不正値は黙ってデフォルトへフォールバックせず `Load` でエラー**にする（設定ミスの早期発見）。既存 TTL 用 `envDuration` は挙動維持のまま残し、strict 版（`envInt`/`envDurationStrict`）を追加（TTL のフォールバック挙動を壊さないため二本立て）。
+- **起動時 ping は回数上限つき線形バックオフ再試行**（`pingWithRetry`、10回・500ms×試行回数）。docker-compose で mysql より api が先に起動するケースに対応。リトライ回数/間隔は env 化せず定数（KISS/YAGNI）。
+- テスト: config パース（デフォルト/上書き/非整数・不正 duration のエラー）と `pingWithRetry` の再試行ロジックをテーブル駆動で保護。プール適用・実 ping は DB 実接続が必要なためユニット対象外。`GOTOOLCHAIN=go1.25.12 go test -race ./...` / `golangci-lint run ./...` 0 issues。
+
+
 ### 意思決定 / 変更内容（パスワード変更時のトークン失効 — Issue #3）
 
 - **`ChangePassword` 成功後に `refToks.RevokeAllForUser` を呼び既存セッションを全失効**させる。トークン窃取後に被害者がパスワードを変更しても盗まれたリフレッシュトークンが最大7日間有効なままになる穴を塞ぐ。関連コミットは本 Issue #3 ブランチ。
