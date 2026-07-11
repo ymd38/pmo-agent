@@ -6,6 +6,8 @@
 
 ### 意思決定
 
+- **govulncheck fail は go.mod のツールチェーン更新で解消**（PR #13 で表面化）。検出26件は全て PR コード起因ではなく、`go 1.25.0` 宣言の標準ライブラリ25件（最遅 fix は go1.25.12）＋間接依存 quic-go v0.59.0 の1件。`go 1.25.12` へ更新し quic-go を v0.59.1 に上げて解消。CI は `go-version-file: api/go.mod` 参照のため go.mod の1箇所更新で完結。1PR=1目的の規約に従い PR #13 とは別の chore PR として対応（マージ後に PR #13 のブランチ更新が必要）。
+
 - **スコープ制御（担当PJのみ）は今は実装せず Issue 化**（[#1](https://github.com/ymd38/pmo-agent/issues/1)）。SPEC が前提とする `project_members` テーブルとアサイン CRUD が未実装で、ミドルウェア追加ではなく機能追加が必要なため。P1「即修正」の範囲を超えると判断。→ その間 pm/member は全プロジェクト閲覧可能なままである点に注意。
 - **`security-scan.yml` は他プロジェクト（migiudedirect-beta）由来をそのまま使わず本リポジトリ向けに最適化**。pnpm/`apps/frontend` は存在せず npm/`apps/pmo-dashboard` 構成のため。
 
@@ -27,5 +29,5 @@
 
 ### 気付き
 
-- **ローカルツールチェーンが壊れている**。Go: `/usr/local/go` の `go`(1.26.2) と同梱 `compile`(1.24.0) が不整合で stdlib すらビルド不可 → `GOTOOLCHAIN=go1.25.0 go test -race ./...` で回避。フロント: PATH 先頭の `node` が v0.10.25 と古く `vitest: command not found` → nvm の Node 22（`~/.nvm/versions/node/v22.14.0/bin`）を使う。
+- **ローカルツールチェーンが壊れている**。Go: `/usr/local/go` の `go`(1.26.2) と同梱 `compile`(1.24.0) が不整合で stdlib すらビルド不可 → `GOTOOLCHAIN=go1.25.12 go test -race ./...` で回避（go.mod のツールチェーン更新に合わせて 1.25.0→1.25.12）。フロント: PATH 先頭の `node` が v0.10.25 と古く `vitest: command not found` → nvm の Node 22（`~/.nvm/versions/node/v22.14.0/bin`）を使う。
 - セッション開始時、リポジトリはほぼ未コミット（`first commit` は README のみ、全コードが untracked）だった。`main` へのマージは実質「初期インポートのコミット」を伴った。
