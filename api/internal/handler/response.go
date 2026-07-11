@@ -15,7 +15,9 @@ func respondError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, domain.ErrValidation):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-	case errors.Is(err, domain.ErrInvalidCredentials), errors.Is(err, domain.ErrTokenInvalid):
+	case errors.Is(err, domain.ErrInvalidCredentials),
+		errors.Is(err, domain.ErrTokenInvalid),
+		errors.Is(err, domain.ErrTokenReuse):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrForbidden), errors.Is(err, domain.ErrInactiveUser), errors.Is(err, domain.ErrNotActivated):
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})

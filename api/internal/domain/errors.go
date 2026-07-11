@@ -9,6 +9,7 @@ var (
 	ErrInactiveUser       = errors.New("このアカウントは無効化されています")
 	ErrNotActivated       = errors.New("このアカウントはまだ有効化されていません")
 	ErrTokenInvalid       = errors.New("トークンが無効か、有効期限が切れています")
+	ErrTokenReuse         = errors.New("トークンが再利用されました")
 	ErrConflict           = errors.New("リソースが競合しています")
 	ErrValidation         = errors.New("入力内容が正しくありません")
 	ErrForbidden          = errors.New("この操作を行う権限がありません")

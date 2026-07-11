@@ -3,6 +3,8 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 
 	"pmo-agent/api/internal/domain"
 )
@@ -111,35 +113,101 @@ func (f *fakeSetTokenRepo) InvalidateForUser(_ context.Context, userID int) erro
 	return nil
 }
 
+// fakeRefreshRepo は DB のアトミックCASを mutex で模擬する。並行リプレイテスト用に
+// Rotate / Revoke は revoked 状態を検査してから更新し、1度しか成功しない。
 type fakeRefreshRepo struct {
-	byHash      map[string]*domain.RefreshToken
-	revoked     map[int]bool
-	revokedUser map[int]bool
-	seq         int
+	mu           sync.Mutex
+	byHash       map[string]*domain.RefreshToken
+	byID         map[int]*domain.RefreshToken
+	revoked      map[int]bool
+	revokedUser  map[int]bool
+	seq          int
+	revokeAllErr error // RevokeAllForUser の失敗注入用
 }
 
 func newFakeRefreshRepo() *fakeRefreshRepo {
-	return &fakeRefreshRepo{byHash: map[string]*domain.RefreshToken{}, revoked: map[int]bool{}, revokedUser: map[int]bool{}}
+	return &fakeRefreshRepo{
+		byHash:      map[string]*domain.RefreshToken{},
+		byID:        map[int]*domain.RefreshToken{},
+		revoked:     map[int]bool{},
+		revokedUser: map[int]bool{},
+	}
+}
+
+// seed は永続化済みトークンを直接投入する（テストの前提条件セットアップ用）。
+func (f *fakeRefreshRepo) seed(t *domain.RefreshToken) {
+	f.byHash[t.TokenHash] = t
+	f.byID[t.ID] = t
+	if t.ID > f.seq {
+		f.seq = t.ID
+	}
 }
 
 func (f *fakeRefreshRepo) Create(_ context.Context, t *domain.RefreshToken) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.seq++
 	t.ID = f.seq
 	f.byHash[t.TokenHash] = t
+	f.byID[t.ID] = t
 	return nil
 }
 
 func (f *fakeRefreshRepo) FindByHash(_ context.Context, hash string) (*domain.RefreshToken, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if t, ok := f.byHash[hash]; ok {
-		return t, nil
+		snap := *t // DB 読み取りを模して呼び出し側にコピーを渡す。
+		return &snap, nil
 	}
 	return nil, domain.ErrNotFound
 }
 
-func (f *fakeRefreshRepo) Revoke(_ context.Context, id int) error { f.revoked[id] = true; return nil }
+// Revoke は未失効時のみ成功する（CAS）。既に失効済みなら ErrTokenReuse。
+func (f *fakeRefreshRepo) Revoke(_ context.Context, id int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.revokeLocked(id)
+}
+
+func (f *fakeRefreshRepo) revokeLocked(id int) error {
+	if f.revoked[id] {
+		return domain.ErrTokenReuse
+	}
+	f.revoked[id] = true
+	if t, ok := f.byID[id]; ok {
+		now := time.Now()
+		t.RevokedAt = &now
+	}
+	return nil
+}
+
+// Rotate は旧失効(CAS)＋新規発行をアトミックに行う。CAS 敗北時は ErrTokenReuse。
+func (f *fakeRefreshRepo) Rotate(_ context.Context, oldID int, newTok *domain.RefreshToken) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.revokeLocked(oldID); err != nil {
+		return err
+	}
+	f.seq++
+	newTok.ID = f.seq
+	f.byHash[newTok.TokenHash] = newTok
+	f.byID[newTok.ID] = newTok
+	return nil
+}
 
 func (f *fakeRefreshRepo) RevokeAllForUser(_ context.Context, userID int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.revokeAllErr != nil {
+		return f.revokeAllErr
+	}
 	f.revokedUser[userID] = true
+	for id, t := range f.byID {
+		if t.UserID == userID {
+			f.revoked[id] = true
+		}
+	}
 	return nil
 }
 
@@ -164,11 +232,17 @@ type fakeJWT struct{}
 func (fakeJWT) Generate(userID int) (string, error) { return fmt.Sprintf("access-%d", userID), nil }
 
 // fakeTokens は決定的な不透明トークンを生成する。Hash は "h:"+plain。
-type fakeTokens struct{ seq int }
+// 並行 Refresh テストでの競合を避けるため mutex で採番を保護する。
+type fakeTokens struct {
+	mu  sync.Mutex
+	seq int
+}
 
 func (f *fakeTokens) Generate() (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.seq++
 	return fmt.Sprintf("plain-%d", f.seq), nil
 }
 
-func (fakeTokens) Hash(plain string) string { return "h:" + plain }
+func (f *fakeTokens) Hash(plain string) string { return "h:" + plain }

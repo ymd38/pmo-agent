@@ -32,6 +32,9 @@ type RefreshTokenRepository interface {
 	Create(ctx context.Context, t *domain.RefreshToken) error
 	FindByHash(ctx context.Context, hash string) (*domain.RefreshToken, error)
 	Revoke(ctx context.Context, id int) error
+	// Rotate は旧トークンの失効（CASガード）と新トークンの発行を1トランザクションで原子的に行う。
+	// 旧トークンが既に失効済みなら並行リプレイとみなし domain.ErrTokenReuse を返す。
+	Rotate(ctx context.Context, oldID int, newTok *domain.RefreshToken) error
 	RevokeAllForUser(ctx context.Context, userID int) error
 }
 
