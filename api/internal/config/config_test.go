@@ -129,3 +129,73 @@ func TestLoad_DBPool(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_AuthRateLimit(t *testing.T) {
+	tests := []struct {
+		name       string
+		env        map[string]string
+		wantErr    bool
+		wantPerMin int
+		wantBurst  int
+	}{
+		{
+			name:       "未設定なら既定値（per_min=10 / burst=5）",
+			env:        map[string]string{},
+			wantPerMin: 10,
+			wantBurst:  5,
+		},
+		{
+			name: "環境変数で上書きできる",
+			env: map[string]string{
+				"AUTH_RATE_LIMIT_PER_MIN": "30",
+				"AUTH_RATE_LIMIT_BURST":   "8",
+			},
+			wantPerMin: 30,
+			wantBurst:  8,
+		},
+		{
+			name:    "AUTH_RATE_LIMIT_PER_MIN が非整数ならエラー",
+			env:     map[string]string{"AUTH_RATE_LIMIT_PER_MIN": "abc"},
+			wantErr: true,
+		},
+		// 0・負数は「制限しない/不能」を意味するため設定ミスとして拒否する。
+		{
+			name:    "AUTH_RATE_LIMIT_PER_MIN が0ならエラー（黙って無制限にしない）",
+			env:     map[string]string{"AUTH_RATE_LIMIT_PER_MIN": "0"},
+			wantErr: true,
+		},
+		{
+			name:    "AUTH_RATE_LIMIT_PER_MIN が負数ならエラー",
+			env:     map[string]string{"AUTH_RATE_LIMIT_PER_MIN": "-1"},
+			wantErr: true,
+		},
+		{
+			name:    "AUTH_RATE_LIMIT_BURST が0ならエラー",
+			env:     map[string]string{"AUTH_RATE_LIMIT_BURST": "0"},
+			wantErr: true,
+		},
+		{
+			name:    "AUTH_RATE_LIMIT_BURST が負数ならエラー",
+			env:     map[string]string{"AUTH_RATE_LIMIT_BURST": "-3"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("JWT_SECRET", "test-secret")
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+
+			cfg, err := Load()
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantPerMin, cfg.AuthRateLimitPerMin)
+			assert.Equal(t, tt.wantBurst, cfg.AuthRateLimitBurst)
+		})
+	}
+}

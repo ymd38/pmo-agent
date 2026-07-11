@@ -30,6 +30,12 @@ type Config struct {
 	AppBaseURL   string // パスワード設定リンクの生成に使う（例: http://localhost:3000）
 	Port         string
 	CookieSecure bool // 認証Cookieの Secure 属性。HTTP のローカル開発でのみ false にする
+
+	// 認証系エンドポイントのレート制限。オンライン総当り・クレデンシャル
+	// スタッフィングを抑止する。キー（クライアントIP）ごとに 1 分あたりの
+	// 許容リクエスト数と、瞬間的なバースト許容数を指定する。
+	AuthRateLimitPerMin int
+	AuthRateLimitBurst  int
 }
 
 // Load は環境変数から設定を読み込む。未設定の項目には開発用デフォルトを当てるが、
@@ -67,22 +73,41 @@ func Load() (Config, error) {
 		return Config{}, errors.New("環境変数 DB_CONN_MAX_LIFETIME は 0 以上である必要があります")
 	}
 
+	// レート制限は「制限」が目的のため、0・負数は無効化（=無制限）や不能状態を
+	// 意味してしまう。設定ミスとして起動時に拒否する（strict validation）。
+	rateLimitPerMin, err := envInt("AUTH_RATE_LIMIT_PER_MIN", 10)
+	if err != nil {
+		return Config{}, err
+	}
+	if rateLimitPerMin <= 0 {
+		return Config{}, errors.New("環境変数 AUTH_RATE_LIMIT_PER_MIN は 1 以上である必要があります")
+	}
+	rateLimitBurst, err := envInt("AUTH_RATE_LIMIT_BURST", 5)
+	if err != nil {
+		return Config{}, err
+	}
+	if rateLimitBurst <= 0 {
+		return Config{}, errors.New("環境変数 AUTH_RATE_LIMIT_BURST は 1 以上である必要があります")
+	}
+
 	return Config{
-		DBHost:            env("DB_HOST", "localhost"),
-		DBPort:            env("DB_PORT", "3306"),
-		DBUser:            env("DB_USER", "root"),
-		DBPassword:        env("DB_PASSWORD", "root"),
-		DBName:            env("DB_NAME", "pmo"),
-		DBMaxOpenConns:    maxOpen,
-		DBMaxIdleConns:    maxIdle,
-		DBConnMaxLifetime: connMaxLifetime,
-		JWTSecret:         secret,
-		AccessTokenTTL:    envDuration("ACCESS_TOKEN_TTL", 8*time.Hour),
-		RefreshTokenTTL:   envDuration("REFRESH_TOKEN_TTL", 7*24*time.Hour),
-		SetTokenTTL:       envDuration("SET_TOKEN_TTL", 72*time.Hour),
-		AppBaseURL:        env("APP_BASE_URL", "http://localhost:3000"),
-		Port:              env("PORT", "8080"),
-		CookieSecure:      envBool("COOKIE_SECURE", true),
+		DBHost:              env("DB_HOST", "localhost"),
+		DBPort:              env("DB_PORT", "3306"),
+		DBUser:              env("DB_USER", "root"),
+		DBPassword:          env("DB_PASSWORD", "root"),
+		DBName:              env("DB_NAME", "pmo"),
+		DBMaxOpenConns:      maxOpen,
+		DBMaxIdleConns:      maxIdle,
+		DBConnMaxLifetime:   connMaxLifetime,
+		JWTSecret:           secret,
+		AccessTokenTTL:      envDuration("ACCESS_TOKEN_TTL", 8*time.Hour),
+		RefreshTokenTTL:     envDuration("REFRESH_TOKEN_TTL", 7*24*time.Hour),
+		SetTokenTTL:         envDuration("SET_TOKEN_TTL", 72*time.Hour),
+		AppBaseURL:          env("APP_BASE_URL", "http://localhost:3000"),
+		Port:                env("PORT", "8080"),
+		CookieSecure:        envBool("COOKIE_SECURE", true),
+		AuthRateLimitPerMin: rateLimitPerMin,
+		AuthRateLimitBurst:  rateLimitBurst,
 	}, nil
 }
 

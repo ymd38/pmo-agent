@@ -246,3 +246,27 @@ func (f *fakeTokens) Generate() (string, error) {
 }
 
 func (f *fakeTokens) Hash(plain string) string { return "h:" + plain }
+
+// countingHasher は Compare / Hash の呼び出し回数を数えるフェイク。
+// タイミング平準化（未知メールでも Compare が呼ばれること）の検証に使う。
+// Hash は "h:"+plain を返し、Compare は hash == "h:"+plain のときのみ一致とする。
+type countingHasher struct {
+	mu        sync.Mutex
+	compareN  int
+	comparedH []string // Compare に渡されたハッシュ（ダミー使用の確認用）
+}
+
+func (h *countingHasher) Hash(plain string) (string, error) { return "h:" + plain, nil }
+
+func (h *countingHasher) Compare(hash, plain string) error {
+	h.mu.Lock()
+	h.compareN++
+	h.comparedH = append(h.comparedH, hash)
+	h.mu.Unlock()
+	if hash == "h:"+plain {
+		return nil
+	}
+	return errCompareMismatch
+}
+
+var errCompareMismatch = fmt.Errorf("hash mismatch")

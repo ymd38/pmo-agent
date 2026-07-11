@@ -313,3 +313,71 @@ func TestAuthUsecase_Refresh_ConcurrentReplay(t *testing.T) {
 	assert.Equal(t, goroutines-1, reuse, "残りは全て再利用として弾かれる")
 	assert.True(t, ref.revokedUser[1], "リプレイ検知でチェーンが全失効する")
 }
+
+// newAuthUCWithHasher は Hasher を差し替えられるテスト用コンストラクタ。
+func newAuthUCWithHasher(users *fakeUserRepo, ref *fakeRefreshRepo, h Hasher) *AuthUsecase {
+	return NewAuthUsecase(
+		users, newFakeSetTokenRepo(), ref,
+		h, fakeJWT{}, &fakeTokens{},
+		time.Hour, 72*time.Hour, "http://localhost:3000",
+	)
+}
+
+// TestAuthUsecase_Login_TimingEqualization は、ユーザー列挙（応答時間差による
+// アカウント存在推測）を防ぐため、認証失敗の経路によらず bcrypt 相当の Compare が
+// 実行されることをフェイクで検証する。
+func TestAuthUsecase_Login_TimingEqualization(t *testing.T) {
+	tests := []struct {
+		name string
+		user *domain.User // nil なら未登録（未知メール）
+	}{
+		{
+			name: "未知メールでもCompareが実行される",
+			user: nil,
+		},
+		{
+			name: "未アクティベート(password_hash=nil)でもCompareが実行される",
+			user: &domain.User{ID: 1, Email: "u@x.jp", PasswordHash: nil, IsActive: true},
+		},
+		{
+			name: "無効化ユーザー(is_active=false)でもCompareが実行される",
+			user: &domain.User{ID: 1, Email: "u@x.jp", PasswordHash: strptr("h:password123"), IsActive: false},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			users := newFakeUserRepo()
+			if tt.user != nil {
+				users.add(tt.user)
+			}
+			h := &countingHasher{}
+			// NewAuthUsecase がダミーハッシュ生成で Hash を呼ぶが Compare は呼ばない。
+			uc := newAuthUCWithHasher(users, newFakeRefreshRepo(), h)
+
+			_, _, err := uc.Login(context.Background(), "u@x.jp", "password123")
+
+			assert.ErrorIs(t, err, domain.ErrInvalidCredentials)
+			assert.Equal(t, 1, h.compareN, "経路によらず Compare がちょうど1回実行される")
+		})
+	}
+}
+
+// TestAuthUsecase_Login_SuccessComparesRealHash は成功経路では実ユーザーの
+// ハッシュ（ダミーではない）に対して Compare が1回行われることを確認する。
+func TestAuthUsecase_Login_SuccessComparesRealHash(t *testing.T) {
+	users := newFakeUserRepo()
+	users.add(&domain.User{ID: 1, Email: "u@x.jp", PasswordHash: strptr("h:password123"), IsActive: true})
+	h := &countingHasher{}
+	uc := newAuthUCWithHasher(users, newFakeRefreshRepo(), h)
+
+	user, toks, err := uc.Login(context.Background(), "u@x.jp", "password123")
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, user.ID)
+	assert.NotEmpty(t, toks.Access)
+	assert.Equal(t, 1, h.compareN, "成功経路でも Compare は1回")
+	assert.Equal(t, []string{"h:password123"}, h.comparedH, "実ユーザーのハッシュと照合する（ダミーではない）")
+}
+
+func strptr(s string) *string { return &s }

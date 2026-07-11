@@ -66,6 +66,7 @@ func buildContainer(opts ...dig.Option) (*dig.Container, error) {
 	provide(handler.NewMemberHandler)
 	provide(handler.NewAttributeHandler)
 	provide(middleware.New)
+	provide(provideRateLimiter)
 	provide(provideDeps)
 	provide(handler.NewEngine)
 
@@ -74,6 +75,10 @@ func buildContainer(opts ...dig.Option) (*dig.Container, error) {
 
 func provideJWT(cfg config.Config) *infra.JWTService {
 	return infra.NewJWTService(cfg.JWTSecret, cfg.AccessTokenTTL)
+}
+
+func provideRateLimiter(cfg config.Config) *middleware.RateLimiter {
+	return middleware.NewRateLimiter(cfg.AuthRateLimitPerMin, cfg.AuthRateLimitBurst)
 }
 
 func provideAuthUsecase(
@@ -118,10 +123,12 @@ func provideDeps(
 	member *handler.MemberHandler,
 	attribute *handler.AttributeHandler,
 	mw *middleware.Middleware,
+	rateLimit *middleware.RateLimiter,
 ) handler.Deps {
 	return handler.Deps{
 		Auth: auth, User: user, Category: cat, Meta: meta,
 		Program: program, Project: project, Member: member, Attribute: attribute, MW: mw,
+		RateLimit:     rateLimit,
 		AllowedOrigin: cfg.AppBaseURL,
 	}
 }

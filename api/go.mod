@@ -9,6 +9,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/dig v1.19.0
 	golang.org/x/crypto v0.52.0
+	golang.org/x/time v0.15.0
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/gorm v1.31.1
 )
