@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -168,16 +169,108 @@ func TestAuthUsecase_Refresh_Rotation(t *testing.T) {
 	users := newFakeUserRepo()
 	users.add(&domain.User{ID: 1, Email: "u@x.jp", PasswordHash: mustHash(t, testPassword), IsActive: true})
 	ref := newFakeRefreshRepo()
-	ref.byHash["h:rt1"] = &domain.RefreshToken{ID: 5, UserID: 1, TokenHash: "h:rt1", ExpiresAt: time.Now().Add(time.Hour)}
+	ref.seed(&domain.RefreshToken{ID: 5, UserID: 1, TokenHash: "h:rt1", ExpiresAt: time.Now().Add(time.Hour)})
 	uc := newAuthUC(users, newFakeSetTokenRepo(), ref)
 
 	toks, err := uc.Refresh(context.Background(), "rt1")
 	require.NoError(t, err)
 	assert.NotEmpty(t, toks.Access)
+	assert.NotEmpty(t, toks.Refresh, "新しいリフレッシュトークンが発行される")
 	assert.True(t, ref.revoked[5], "旧リフレッシュトークンが失効する（ローテーション）")
+	assert.Len(t, ref.byHash, 2, "旧＋新の2トークンが存在する")
 
 	t.Run("不正なリフレッシュトークンは ErrTokenInvalid", func(t *testing.T) {
 		_, err := uc.Refresh(context.Background(), "unknown")
 		assert.True(t, errors.Is(err, domain.ErrTokenInvalid))
 	})
+}
+
+// TestAuthUsecase_Refresh_Validation はトークン状態ごとの検証結果を表駆動で確認する。
+func TestAuthUsecase_Refresh_Validation(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name          string
+		token         *domain.RefreshToken // nil ならトークンを投入しない
+		plain         string
+		wantErr       error
+		wantChainKill bool // RevokeAllForUser が呼ばれるべきか
+	}{
+		{
+			name:    "未知トークンは ErrTokenInvalid",
+			token:   nil,
+			plain:   "unknown",
+			wantErr: domain.ErrTokenInvalid,
+		},
+		{
+			name:    "期限切れトークンは ErrTokenInvalid（チェーン失効はしない）",
+			token:   &domain.RefreshToken{ID: 1, UserID: 1, TokenHash: "h:expired", ExpiresAt: now.Add(-time.Hour)},
+			plain:   "expired",
+			wantErr: domain.ErrTokenInvalid,
+		},
+		{
+			name:          "失効済みトークンの再提示は ErrTokenReuse＋チェーン全失効",
+			token:         &domain.RefreshToken{ID: 1, UserID: 1, TokenHash: "h:revoked", ExpiresAt: now.Add(time.Hour), RevokedAt: &now},
+			plain:         "revoked",
+			wantErr:       domain.ErrTokenReuse,
+			wantChainKill: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			users := newFakeUserRepo()
+			users.add(&domain.User{ID: 1, Email: "u@x.jp", PasswordHash: mustHash(t, testPassword), IsActive: true})
+			ref := newFakeRefreshRepo()
+			if tt.token != nil {
+				ref.seed(tt.token)
+			}
+			uc := newAuthUC(users, newFakeSetTokenRepo(), ref)
+
+			_, err := uc.Refresh(context.Background(), tt.plain)
+			assert.ErrorIs(t, err, tt.wantErr)
+			assert.Equal(t, tt.wantChainKill, ref.revokedUser[1], "チェーン全失効の有無")
+		})
+	}
+}
+
+// TestAuthUsecase_Refresh_ConcurrentReplay は同一トークンの並行リプレイで
+// 有効セッションが二重発行されないこと（成功ちょうど1件）を -race 下で検証する。
+func TestAuthUsecase_Refresh_ConcurrentReplay(t *testing.T) {
+	const goroutines = 16
+
+	users := newFakeUserRepo()
+	users.add(&domain.User{ID: 1, Email: "u@x.jp", PasswordHash: mustHash(t, testPassword), IsActive: true})
+	ref := newFakeRefreshRepo()
+	ref.seed(&domain.RefreshToken{ID: 42, UserID: 1, TokenHash: "h:stolen", ExpiresAt: time.Now().Add(time.Hour)})
+	uc := newAuthUC(users, newFakeSetTokenRepo(), ref)
+
+	var (
+		wg    sync.WaitGroup
+		mu    sync.Mutex
+		okN   int
+		reuse int
+	)
+	start := make(chan struct{})
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start // 一斉スタートで競合を最大化する。
+			_, err := uc.Refresh(context.Background(), "stolen")
+			mu.Lock()
+			switch {
+			case err == nil:
+				okN++
+			case errors.Is(err, domain.ErrTokenReuse):
+				reuse++
+			}
+			mu.Unlock()
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	assert.Equal(t, 1, okN, "ローテーションに成功するのはちょうど1件（二重セッション防止）")
+	assert.Equal(t, goroutines-1, reuse, "残りは全て再利用として弾かれる")
+	assert.True(t, ref.revokedUser[1], "リプレイ検知でチェーンが全失効する")
 }

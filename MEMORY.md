@@ -4,6 +4,20 @@
 
 ## 2026-07-11
 
+### 意思決定（リフレッシュトークン再利用検知 — Issue #2 実装）
+
+- **ローテーションのトランザクション境界は repository（`RefreshTokenRepo.Rotate`）に置く**。旧失効＋新規発行という複合 DB 操作の原子性は「DBアクセスの詳細」と判断し GORM の `Transaction` を repository 内に閉じた。usecase は「再利用検知 → チェーン全失効」という**ビジネス判断**のみ保持（層分離を維持）。汎用 TxManager 抽象は現状 tx 基盤が無く YAGNI/KISS に反するため導入せず。
+- **失効判定はアプリ層 CAS でなく単一 UPDATE のガードで担保**。`Revoke`/`Rotate` を `WHERE id = ? AND revoked_at IS NULL` ＋ `RowsAffected==0→ErrTokenReuse` にし、MySQL の行ロックで並行リプレイでも失効成功は1件のみ（FindByHash→IsUsable→Revoke の非原子な TOCTOU を解消）。
+- **再利用検知は2経路**: (1) FindByHash で `RevokedAt != nil`（失効済みの再提示）、(2) `Rotate` の CAS 敗北（並行リプレイ）。いずれも `RevokeAllForUser` でチェーン全失効させ `ErrTokenReuse`(401) を返す。盗用時は正規クライアントのセッションも巻き添えで失効するが、被害最小化を優先する設計。
+- 新設 `domain.ErrTokenReuse` は `ErrTokenInvalid` と同様 401 に写像。`Logout` は失効済み(`ErrTokenReuse`)を冪等成功として黙認。
+
+### 変更内容（Issue #2）
+
+- `repository/token_repo.go`: `Revoke` に `revoked_at IS NULL` ガード＋RowsAffected チェック、`Rotate`（トランザクション原子ローテーション）を追加。
+- `usecase/auth.go`: `Refresh` を再利用検知つきに再構成、`prepareTokens`（DB非依存の発行）を切り出し、`Logout` を冪等化。`ports.go` の `RefreshTokenRepository` に `Rotate` を追加。
+- `domain/errors.go`・`handler/response.go`: `ErrTokenReuse`(401) を追加。
+- テスト: 並行リプレイ（16 goroutine 同時 Refresh → 成功ちょうど1件・残り全て `ErrTokenReuse`・チェーン失効）を `-race` で保護。フェイクは mutex で DB の CAS を模擬。`GOTOOLCHAIN=go1.25.12 go test -race ./...` / `golangci-lint run ./...` 0 issues。
+
 ### 意思決定（担当PJスコープ制御 — Issue #1 実装）
 
 - **スコープはミドルウェアでロール→許可PJ ID集合（`domain.ProjectScope`）に解決し、usecase 引数で渡す**。gin.Context 依存を usecase に持ち込まず（クリーンアーキテクチャ維持）、`middleware.ResolveProjectScope()` が context に格納 → handler が `requireScope` で取り出し usecase に委譲。

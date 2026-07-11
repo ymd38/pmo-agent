@@ -73,7 +73,9 @@ func (uc *AuthUsecase) Login(ctx context.Context, email, password string) (*doma
 }
 
 // Refresh はリフレッシュトークンを検証し、新しいアクセストークンを発行する。
-// 旧リフレッシュトークンは失効させ、新しいものを発行する（ローテーション）。
+// 旧リフレッシュトークンは失効させ、新しいものを原子的に発行する（ローテーション）。
+// 失効済みトークンの再提示や並行リプレイを検知した場合は、当該ユーザーのトークン
+// チェーンを全失効させる（盗用時の被害を最小化するセキュリティ対応）。
 func (uc *AuthUsecase) Refresh(ctx context.Context, refreshPlain string) (Tokens, error) {
 	rt, err := uc.refToks.FindByHash(ctx, uc.tokens.Hash(refreshPlain))
 	if err != nil {
@@ -82,18 +84,32 @@ func (uc *AuthUsecase) Refresh(ctx context.Context, refreshPlain string) (Tokens
 		}
 		return Tokens{}, fmt.Errorf("usecase.Refresh: %w", err)
 	}
-	if !rt.IsUsable(uc.now()) {
+	// 再利用検知(1): 失効済みトークンの再提示はチェーン侵害の兆候。全セッションを失効させる。
+	if rt.RevokedAt != nil {
+		_ = uc.refToks.RevokeAllForUser(ctx, rt.UserID)
+		return Tokens{}, domain.ErrTokenReuse
+	}
+	if !rt.IsUsable(uc.now()) { // ここに到達するのは期限切れのみ。
 		return Tokens{}, domain.ErrTokenInvalid
 	}
 	user, err := uc.users.FindByID(ctx, rt.UserID)
 	if err != nil || !user.CanLogin() {
 		return Tokens{}, domain.ErrTokenInvalid
 	}
-	// ローテーション: 旧トークンを失効させてから新規発行。
-	if err := uc.refToks.Revoke(ctx, rt.ID); err != nil {
-		return Tokens{}, fmt.Errorf("usecase.Refresh revoke: %w", err)
+	// 新トークンを生成し、旧失効(CAS)＋新規発行を1トランザクションで原子的に行う。
+	access, newRefreshPlain, newRT, err := uc.prepareTokens(user.ID)
+	if err != nil {
+		return Tokens{}, err
 	}
-	return uc.issueTokens(ctx, user.ID)
+	if err := uc.refToks.Rotate(ctx, rt.ID, newRT); err != nil {
+		// 再利用検知(2): CAS 敗北 = 並行リプレイ。チェーンを全失効させる。
+		if errors.Is(err, domain.ErrTokenReuse) {
+			_ = uc.refToks.RevokeAllForUser(ctx, rt.UserID)
+			return Tokens{}, domain.ErrTokenReuse
+		}
+		return Tokens{}, fmt.Errorf("usecase.Refresh rotate: %w", err)
+	}
+	return Tokens{Access: access, Refresh: newRefreshPlain}, nil
 }
 
 // Logout はリフレッシュトークンを失効させる。未知のトークンは黙って成功扱い。
@@ -105,7 +121,11 @@ func (uc *AuthUsecase) Logout(ctx context.Context, refreshPlain string) error {
 	if err != nil {
 		return nil
 	}
-	return uc.refToks.Revoke(ctx, rt.ID)
+	// 既に失効済み（ErrTokenReuse）でもログアウトは冪等に成功扱いとする。
+	if err := uc.refToks.Revoke(ctx, rt.ID); err != nil && !errors.Is(err, domain.ErrTokenReuse) {
+		return err
+	}
+	return nil
 }
 
 // Me はログイン中ユーザーと、その保有機能権限コードを返す。
@@ -185,20 +205,30 @@ func (uc *AuthUsecase) ChangePassword(ctx context.Context, userID int, current, 
 	return uc.users.UpdatePasswordHash(ctx, userID, hash)
 }
 
-// issueTokens はアクセストークンと（保存済みの）リフレッシュトークンを生成する。
-func (uc *AuthUsecase) issueTokens(ctx context.Context, userID int) (Tokens, error) {
-	access, err := uc.jwt.Generate(userID)
+// prepareTokens はアクセストークンと新しいリフレッシュトークン（平文＋永続化前レコード）を
+// 生成する。DB には触れないため、呼び出し側が Create / Rotate で永続化する。
+func (uc *AuthUsecase) prepareTokens(userID int) (access, refreshPlain string, rt *domain.RefreshToken, err error) {
+	access, err = uc.jwt.Generate(userID)
 	if err != nil {
-		return Tokens{}, fmt.Errorf("usecase.issueTokens jwt: %w", err)
+		return "", "", nil, fmt.Errorf("usecase.prepareTokens jwt: %w", err)
 	}
-	refreshPlain, err := uc.tokens.Generate()
+	refreshPlain, err = uc.tokens.Generate()
 	if err != nil {
-		return Tokens{}, fmt.Errorf("usecase.issueTokens gen: %w", err)
+		return "", "", nil, fmt.Errorf("usecase.prepareTokens gen: %w", err)
 	}
-	rt := &domain.RefreshToken{
+	rt = &domain.RefreshToken{
 		UserID:    userID,
 		TokenHash: uc.tokens.Hash(refreshPlain),
 		ExpiresAt: uc.now().Add(uc.refTTL),
+	}
+	return access, refreshPlain, rt, nil
+}
+
+// issueTokens は新規トークンを生成して保存する（ログイン時のローテーションを伴わない発行）。
+func (uc *AuthUsecase) issueTokens(ctx context.Context, userID int) (Tokens, error) {
+	access, refreshPlain, rt, err := uc.prepareTokens(userID)
+	if err != nil {
+		return Tokens{}, err
 	}
 	if err := uc.refToks.Create(ctx, rt); err != nil {
 		return Tokens{}, fmt.Errorf("usecase.issueTokens store: %w", err)
