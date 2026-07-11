@@ -26,6 +26,14 @@ func (r *CategoryRepo) ListCategories(ctx context.Context, includeInactive bool)
 	return cats, nil
 }
 
+func (r *CategoryRepo) FindCategoryByID(ctx context.Context, id int) (*domain.Category, error) {
+	var c domain.Category
+	if err := r.db.WithContext(ctx).First(&c, id).Error; err != nil {
+		return nil, wrapNotFound(err)
+	}
+	return &c, nil
+}
+
 func (r *CategoryRepo) CreateCategory(ctx context.Context, c *domain.Category) error {
 	return wrapConflict(r.db.WithContext(ctx).Create(c).Error)
 }

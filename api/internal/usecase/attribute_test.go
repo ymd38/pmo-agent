@@ -33,6 +33,9 @@ func (f *fakeCategoryRepo) FindValueByID(_ context.Context, id int) (*domain.Cat
 func (f *fakeCategoryRepo) ListCategories(_ context.Context, _ bool) ([]domain.Category, error) {
 	return nil, nil
 }
+func (f *fakeCategoryRepo) FindCategoryByID(_ context.Context, _ int) (*domain.Category, error) {
+	return nil, domain.ErrNotFound
+}
 func (f *fakeCategoryRepo) CreateCategory(_ context.Context, _ *domain.Category) error   { return nil }
 func (f *fakeCategoryRepo) UpdateCategory(_ context.Context, _ *domain.Category) error   { return nil }
 func (f *fakeCategoryRepo) DeactivateCategory(_ context.Context, _ int) error            { return nil }

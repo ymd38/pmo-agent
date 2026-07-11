@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"time"
 
 	"pmo-agent/api/internal/domain"
 )
@@ -26,6 +27,8 @@ type PasswordSetTokenRepository interface {
 	FindByHash(ctx context.Context, hash string) (*domain.PasswordSetToken, error)
 	MarkUsed(ctx context.Context, id int) error
 	InvalidateForUser(ctx context.Context, userID int) error
+	// DeleteExpiredBefore は expires_at が cutoff より前の行を物理削除し、削除件数を返す。
+	DeleteExpiredBefore(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 type RefreshTokenRepository interface {
@@ -36,6 +39,9 @@ type RefreshTokenRepository interface {
 	// 旧トークンが既に失効済みなら並行リプレイとみなし domain.ErrTokenReuse を返す。
 	Rotate(ctx context.Context, oldID int, newTok *domain.RefreshToken) error
 	RevokeAllForUser(ctx context.Context, userID int) error
+	// DeleteExpiredBefore は expires_at が cutoff より前の行を物理削除し、削除件数を返す。
+	// 失効済み行の即時削除は再利用検知を壊すため、削除は期限切れ行に限定する。
+	DeleteExpiredBefore(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 type RoleRepository interface {
@@ -45,6 +51,7 @@ type RoleRepository interface {
 
 type CategoryRepository interface {
 	ListCategories(ctx context.Context, includeInactive bool) ([]domain.Category, error)
+	FindCategoryByID(ctx context.Context, id int) (*domain.Category, error)
 	CreateCategory(ctx context.Context, c *domain.Category) error
 	UpdateCategory(ctx context.Context, c *domain.Category) error
 	DeactivateCategory(ctx context.Context, id int) error
