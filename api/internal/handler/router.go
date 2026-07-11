@@ -19,6 +19,7 @@ type Deps struct {
 	Member        *MemberHandler
 	Attribute     *AttributeHandler
 	MW            *middleware.Middleware
+	RateLimit     *middleware.RateLimiter
 	AllowedOrigin string
 }
 
@@ -32,11 +33,17 @@ func NewEngine(d Deps) *gin.Engine {
 
 	api.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 
-	// --- 認証（公開） ---
-	api.POST("/auth/login", d.Auth.Login)
-	api.POST("/auth/refresh", d.Auth.Refresh)
-	api.GET("/auth/set-password/:token", d.Auth.VerifySetToken)
-	api.POST("/auth/set-password", d.Auth.SetPassword)
+	// --- 認証（公開・レート制限あり） ---
+	// 資格情報を扱う公開エンドポイントはオンライン総当り／クレデンシャル
+	// スタッフィングの標的になるため、IP 単位のレート制限を適用する。
+	pub := api.Group("")
+	pub.Use(d.RateLimit.Limit())
+	{
+		pub.POST("/auth/login", d.Auth.Login)
+		pub.POST("/auth/refresh", d.Auth.Refresh)
+		pub.GET("/auth/set-password/:token", d.Auth.VerifySetToken)
+		pub.POST("/auth/set-password", d.Auth.SetPassword)
+	}
 
 	// --- 認証（要ログイン） ---
 	auth := api.Group("")

@@ -4,6 +4,15 @@
 
 ## 2026-07-11
 
+### 意思決定 / 変更内容（認証エンドポイントのレート制限＋タイミング平準化 — Issue #7）
+
+- **レート制限はインメモリ実装**（`middleware.RateLimiter`）。`golang.org/x/time/rate` の `rate.Limiter` を key（クライアントIP）ごとに map で保持。フェーズ1は単一インスタンス前提のため Redis 等の外部ストアは持たない（YAGNI）。エントリは最終アクセスから `staleTTL`(10m) 超過で破棄（毎リクエスト線形走査で map 無限増加を防止。認証系は低頻度のため十分軽量）。
+- **超過は 429 + `Retry-After: 60`**。既存 `middleware.abort`（`{"error": ...}`）を再利用。適用は公開認証系（`/auth/login`・`/auth/refresh`・`GET/POST /auth/set-password`）グループのみ。全体適用はしない（router.go で group 分割）。
+- **設定は strict validation**（PR #18 方針踏襲）。`AUTH_RATE_LIMIT_PER_MIN`(既定10)/`AUTH_RATE_LIMIT_BURST`(既定5) を追加し、0・負数・非整数は `Load` で起動時エラー（「制限」目的のため0=無制限を許さない）。
+- **タイミング平準化は usecase 層**（層分離）。`Login` で未知メール／未アクティベート／無効化のいずれでも、起動時に生成した使い捨てダミー bcrypt ハッシュへ `Hasher.Compare` を1回実行し bcrypt 相当コストを払う（応答時間差によるユーザー列挙を防止）。ダミーハッシュ生成失敗時は有効な固定フォールバックハッシュ（cost10）を使用。DB エラー経路では実行しない。
+- **キー分離/回復のテスト容易化**のため `RateLimiter` に `now func()`/`keyFunc` を注入可能化（`AllowN(now,1)`）。テストは上限内通過・超過429・時間経過で回復・IP別独立・ttl クリーンアップを表駆動で保護。平準化は Compare 回数を数える `countingHasher` フェイクで検証。
+- 依存追加は `golang.org/x/time`（準標準）のみ。`GOTOOLCHAIN=go1.25.12 go test -race ./...` / `golangci-lint run ./...` 0 issues。
+
 ### 意思決定 / 変更内容（DBコネクションプール設定 — Issue #4）
 
 - **プール3設定（`SetMaxOpenConns`/`SetMaxIdleConns`/`SetConnMaxLifetime`）を `infra.NewDB` で `db.DB()` から適用**。無制限接続による `max_connections` 枯渇と、MySQL `wait_timeout`(既定8h)経過後の死んだ接続再利用（`invalid connection`）を塞ぐ。値は既存 config パターンに合わせ env 化（`DB_MAX_OPEN_CONNS`/`DB_MAX_IDLE_CONNS`/`DB_CONN_MAX_LIFETIME`）。デフォルトは open=25 / idle=25 / lifetime=5m（wait_timeout より十分短い）。

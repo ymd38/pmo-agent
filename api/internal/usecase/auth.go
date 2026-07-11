@@ -2,6 +2,8 @@ package usecase
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -21,7 +23,18 @@ type AuthUsecase struct {
 	setTTL  time.Duration
 	baseURL string
 	now     func() time.Time
+
+	// dummyHash は起動時に生成する使い捨ての bcrypt ハッシュ。ユーザーが存在しない／
+	// 未アクティベートのときも、これに対して Compare を1回実行して bcrypt 相当の
+	// 処理コストを払い、応答時間差によるユーザー列挙（アカウント存在の推測）を防ぐ。
+	dummyHash string
 }
+
+// fallbackDummyHash は起動時のダミーハッシュ生成に失敗した場合の代替。
+// 実在するパスワードとの一致は問題にならない（Compare の結果は捨て、常に
+// ErrInvalidCredentials を返す）。目的は bcrypt の処理時間を消費することだけ。
+// 値は bcrypt.DefaultCost(=10) で生成した有効なハッシュ。
+const fallbackDummyHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
 
 func NewAuthUsecase(
 	users UserRepository,
@@ -37,8 +50,24 @@ func NewAuthUsecase(
 		users: users, setToks: setToks, refToks: refToks,
 		hasher: hasher, jwt: jwt, tokens: tokens,
 		refTTL: refTTL, setTTL: setTTL, baseURL: baseURL,
-		now: time.Now,
+		now:       time.Now,
+		dummyHash: newDummyHash(hasher),
 	}
+}
+
+// newDummyHash はランダムな平文から使い捨ての bcrypt ハッシュを生成する。
+// 実 Compare と同じコスト（同じ hasher 実装）で処理時間を揃えるのが目的。
+// 生成に失敗した場合は固定のフォールバックハッシュを使う。
+func newDummyHash(h Hasher) string {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return fallbackDummyHash
+	}
+	hash, err := h.Hash(hex.EncodeToString(buf))
+	if err != nil {
+		return fallbackDummyHash
+	}
+	return hash
 }
 
 // Tokens はログイン/リフレッシュの結果（平文トークン）。Cookie へ載せるのは handler の責務。
@@ -51,15 +80,21 @@ const minPasswordLen = 8
 
 // Login はメール+パスワードを検証し、アクセス/リフレッシュトークンを発行する。
 // 認証失敗・未アクティベート・無効化はすべて ErrInvalidCredentials に集約（情報を漏らさない）。
+//
+// タイミング攻撃対策: ユーザーが存在しない／未アクティベートの経路でも、実在ユーザーの
+// パスワード照合と同等の bcrypt コストを払う（ダミー Compare）。これにより応答時間差から
+// アカウントの存在有無を推測されるのを防ぐ。
 func (uc *AuthUsecase) Login(ctx context.Context, email, password string) (*domain.User, Tokens, error) {
 	user, err := uc.users.FindByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
+			uc.dummyCompare(password)
 			return nil, Tokens{}, domain.ErrInvalidCredentials
 		}
 		return nil, Tokens{}, fmt.Errorf("usecase.Login: %w", err)
 	}
 	if !user.CanLogin() {
+		uc.dummyCompare(password)
 		return nil, Tokens{}, domain.ErrInvalidCredentials
 	}
 	if err := uc.hasher.Compare(*user.PasswordHash, password); err != nil {
@@ -70,6 +105,12 @@ func (uc *AuthUsecase) Login(ctx context.Context, email, password string) (*doma
 		return nil, Tokens{}, err
 	}
 	return user, toks, nil
+}
+
+// dummyCompare はダミーハッシュに対して Compare を1回実行し、bcrypt 相当のコストを払う。
+// 結果は常に捨てる（呼び出し側は経路によらず ErrInvalidCredentials を返す）。
+func (uc *AuthUsecase) dummyCompare(password string) {
+	_ = uc.hasher.Compare(uc.dummyHash, password)
 }
 
 // Refresh はリフレッシュトークンを検証し、新しいアクセストークンを発行する。
