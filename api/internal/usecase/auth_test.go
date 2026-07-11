@@ -20,7 +20,7 @@ func newAuthUC(users *fakeUserRepo, set *fakeSetTokenRepo, ref *fakeRefreshRepo)
 	return NewAuthUsecase(
 		users, set, ref,
 		infra.NewPasswordHasher(), fakeJWT{}, &fakeTokens{},
-		time.Hour, 72*time.Hour, "http://localhost:3000",
+		time.Hour,
 	)
 }
 
@@ -319,7 +319,7 @@ func newAuthUCWithHasher(users *fakeUserRepo, ref *fakeRefreshRepo, h Hasher) *A
 	return NewAuthUsecase(
 		users, newFakeSetTokenRepo(), ref,
 		h, fakeJWT{}, &fakeTokens{},
-		time.Hour, 72*time.Hour, "http://localhost:3000",
+		time.Hour,
 	)
 }
 
@@ -381,3 +381,58 @@ func TestAuthUsecase_Login_SuccessComparesRealHash(t *testing.T) {
 }
 
 func strptr(s string) *string { return &s }
+
+// TestAuthUsecase_CleanupExpiredTokens は、期限切れトークンのクリーンアップが
+// (1) 期限切れ行のみ削除し、猶予期間内の行は残すこと、
+// (2) refresh / set の両テーブルを、猶予期間を織り込んだ同一 cutoff で掃除すること、
+// を検証する。ローテーション時 DELETE を採らず「期限切れ＋猶予経過」だけを消すのが要点。
+func TestAuthUsecase_CleanupExpiredTokens(t *testing.T) {
+	now := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	ref := newFakeRefreshRepo()
+	set := newFakeSetTokenRepo()
+
+	// cutoff = now - expiredTokenRetention(30日)。境界を挟んで3種を投入。
+	cutoff := now.Add(-expiredTokenRetention)
+	longExpired := cutoff.Add(-time.Hour)  // 猶予も過ぎた期限切れ → 削除対象
+	recentExpired := cutoff.Add(time.Hour) // 期限切れだが猶予内 → 残す
+	valid := now.Add(time.Hour)            // 有効 → 残す
+
+	ref.seed(&domain.RefreshToken{ID: 1, UserID: 1, TokenHash: "h1", ExpiresAt: longExpired})
+	ref.seed(&domain.RefreshToken{ID: 2, UserID: 1, TokenHash: "h2", ExpiresAt: recentExpired})
+	ref.seed(&domain.RefreshToken{ID: 3, UserID: 1, TokenHash: "h3", ExpiresAt: valid})
+	_ = set.Create(context.Background(), &domain.PasswordSetToken{UserID: 1, TokenHash: "s1", ExpiresAt: longExpired})
+	_ = set.Create(context.Background(), &domain.PasswordSetToken{UserID: 1, TokenHash: "s2", ExpiresAt: valid})
+
+	uc := newAuthUC(newFakeUserRepo(), set, ref)
+	uc.now = func() time.Time { return now }
+
+	refN, setN, err := uc.CleanupExpiredTokens(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), refN, "refresh は猶予も過ぎた1件のみ削除")
+	assert.Equal(t, int64(1), setN, "set は猶予も過ぎた1件のみ削除")
+
+	// 猶予内の期限切れ・有効トークンは残る（再利用検知の窓を保つ）。
+	require.NotNil(t, ref.deleteCutoff)
+	assert.True(t, ref.deleteCutoff.Equal(cutoff), "refresh の cutoff は now-猶予")
+	require.NotNil(t, set.deleteCutoff)
+	assert.True(t, set.deleteCutoff.Equal(cutoff), "set の cutoff も同一（猶予を織り込む）")
+	_, gone := ref.byHash["h1"]
+	assert.False(t, gone, "猶予も過ぎた期限切れ refresh は削除される")
+	_, kept := ref.byHash["h2"]
+	assert.True(t, kept, "猶予内の期限切れ refresh は残る（再利用検知のため）")
+}
+
+// TestAuthUsecase_CleanupExpiredTokens_RefreshError は refresh 側の失敗が
+// ラップされて伝播し、set 側の削除に進まないことを確認する。
+func TestAuthUsecase_CleanupExpiredTokens_RefreshError(t *testing.T) {
+	ref := newFakeRefreshRepo()
+	ref.deleteErr = errors.New("boom")
+	set := newFakeSetTokenRepo()
+	uc := newAuthUC(newFakeUserRepo(), set, ref)
+
+	_, _, err := uc.CleanupExpiredTokens(context.Background())
+
+	require.Error(t, err)
+	assert.Nil(t, set.deleteCutoff, "refresh 失敗時は set の削除に進まない")
+}

@@ -20,8 +20,6 @@ type AuthUsecase struct {
 	jwt     AccessTokenIssuer
 	tokens  TokenManager
 	refTTL  time.Duration
-	setTTL  time.Duration
-	baseURL string
 	now     func() time.Time
 
 	// dummyHash は起動時に生成する使い捨ての bcrypt ハッシュ。ユーザーが存在しない／
@@ -43,13 +41,12 @@ func NewAuthUsecase(
 	hasher Hasher,
 	jwt AccessTokenIssuer,
 	tokens TokenManager,
-	refTTL, setTTL time.Duration,
-	baseURL string,
+	refTTL time.Duration,
 ) *AuthUsecase {
 	return &AuthUsecase{
 		users: users, setToks: setToks, refToks: refToks,
 		hasher: hasher, jwt: jwt, tokens: tokens,
-		refTTL: refTTL, setTTL: setTTL, baseURL: baseURL,
+		refTTL:    refTTL,
 		now:       time.Now,
 		dummyHash: newDummyHash(hasher),
 	}
@@ -77,6 +74,11 @@ type Tokens struct {
 }
 
 const minPasswordLen = 8
+
+// expiredTokenRetention は期限切れトークンを削除せず残す猶予期間。
+// 期限切れ直後のリフレッシュトークンも一定期間は再利用検知の対象として残すため、
+// リフレッシュトークン TTL（7日）を十分に上回る値にする。
+const expiredTokenRetention = 30 * 24 * time.Hour
 
 // Login はメール+パスワードを検証し、アクセス/リフレッシュトークンを発行する。
 // 認証失敗・未アクティベート・無効化はすべて ErrInvalidCredentials に集約（情報を漏らさない）。
@@ -171,6 +173,25 @@ func (uc *AuthUsecase) Logout(ctx context.Context, refreshPlain string) error {
 		return err
 	}
 	return nil
+}
+
+// CleanupExpiredTokens は期限切れの refresh_tokens / password_set_tokens を削除する
+// （テーブルの無限増加を防ぐ低頻度メンテナンス。起動時に1回呼ぶ想定）。
+//
+// 削除対象は「expires_at が now - 猶予期間 より前」の行に限定する。ローテーション時や
+// 失効時に行を消すと再利用検知（失効済みトークンが FindByHash で見つかることに依存）が
+// 壊れるため、削除は期限切れ＋猶予経過の行だけに限る。削除件数（refresh, set）を返す。
+func (uc *AuthUsecase) CleanupExpiredTokens(ctx context.Context) (refreshDeleted, setDeleted int64, err error) {
+	cutoff := uc.now().Add(-expiredTokenRetention)
+	refreshDeleted, err = uc.refToks.DeleteExpiredBefore(ctx, cutoff)
+	if err != nil {
+		return 0, 0, fmt.Errorf("usecase.CleanupExpiredTokens refresh: %w", err)
+	}
+	setDeleted, err = uc.setToks.DeleteExpiredBefore(ctx, cutoff)
+	if err != nil {
+		return refreshDeleted, 0, fmt.Errorf("usecase.CleanupExpiredTokens set: %w", err)
+	}
+	return refreshDeleted, setDeleted, nil
 }
 
 // Me はログイン中ユーザーと、その保有機能権限コードを返す。
