@@ -118,9 +118,8 @@ func (h *CategoryHandler) UpdateValue(c *gin.Context) {
 	if !ok {
 		return
 	}
-	valueID, err := strconv.Atoi(c.Param("valueId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "値IDが不正です"})
+	valueID, ok := pathValueID(c)
+	if !ok {
 		return
 	}
 	var req valueReq
@@ -137,12 +136,15 @@ func (h *CategoryHandler) UpdateValue(c *gin.Context) {
 }
 
 func (h *CategoryHandler) DeleteValue(c *gin.Context) {
-	valueID, err := strconv.Atoi(c.Param("valueId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "値IDが不正です"})
+	id, ok := pathID(c)
+	if !ok {
 		return
 	}
-	if err := h.uc.DeactivateValue(c.Request.Context(), valueID); err != nil {
+	valueID, ok := pathValueID(c)
+	if !ok {
+		return
+	}
+	if err := h.uc.DeactivateValue(c.Request.Context(), id, valueID); err != nil {
 		respondError(c, err)
 		return
 	}
@@ -150,16 +152,29 @@ func (h *CategoryHandler) DeleteValue(c *gin.Context) {
 }
 
 func (h *CategoryHandler) ReactivateValue(c *gin.Context) {
-	valueID, err := strconv.Atoi(c.Param("valueId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "値IDが不正です"})
+	id, ok := pathID(c)
+	if !ok {
 		return
 	}
-	if err := h.uc.ReactivateValue(c.Request.Context(), valueID); err != nil {
+	valueID, ok := pathValueID(c)
+	if !ok {
+		return
+	}
+	if err := h.uc.ReactivateValue(c.Request.Context(), id, valueID); err != nil {
 		respondError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// pathValueID は :valueId パスセグメントを解析する。不正なら 400 を返して false。
+func pathValueID(c *gin.Context) (int, bool) {
+	valueID, err := strconv.Atoi(c.Param("valueId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "値IDが不正です"})
+		return 0, false
+	}
+	return valueID, true
 }
 
 type categoryReq struct {

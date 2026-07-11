@@ -4,6 +4,15 @@
 
 ## 2026-07-11
 
+### 意思決定 / 変更内容（カテゴリ値ミューテーションの所属検証 — Issue #6）
+
+- **原因**: `handler` の `DeleteValue`/`ReactivateValue` が `:valueId` のみ読み `:id`(カテゴリID) を無視して usecase を呼んでいた。usecase 側 `DeactivateValue`/`ReactivateValue` も `valueID` 単独引数で所属検証なし。`DELETE /categories/999/values/7` が値7の実所属に関わらず 200 で無効化される URL 契約破綻。`UpdateValue` のみ所属チェック済みで不整合だった。
+- **所属検証を usecase 層の単一経路に集約**: `findValueInCategory(ctx, categoryID, valueID)` を private メソッド化。`FindValueByID` で取得し `v.CategoryID != categoryID` なら `ErrNotFound`。既存値対象の3ミューテーション（Update/Deactivate/Reactivate）を全てこの経路に統一（`UpdateValue` も従来の `ListValues`+`findValue` から寄せて DRY 化、不要になった `findValue` は削除）。`CreateValue` は path の categoryID を権威に新規作成するため所属検証対象外。
+- **所属不一致は 404（403/409 でなく）**。別カテゴリの値の存在を漏らさない存在秘匿（Issue #1 で確立した方針と一貫）。
+- **usecase シグネチャ変更**: `DeactivateValue`/`ReactivateValue` に `categoryID` を追加。handler は `pathID`+`pathValueID`(新 helper) のパースと委譲のみ（層分離、ビジネス判断は持たない）。
+- **Critical Business Rule「カテゴリ値削除は論理削除のみ」は不変**（`is_active=false`。物理削除に変えていない）。
+- テスト: `category_test.go` 新設。Update/Deactivate/Reactivate それぞれに「所属一致→成功 / 別カテゴリ所属→404 / 存在しない valueId→404」をテーブル駆動で適用し、所属不一致時にリポジトリのミューテーションが呼ばれないことも検証。`GOTOOLCHAIN=go1.25.12 go test -race ./...` / `golangci-lint run ./...` 0 issues。
+
 ### 意思決定 / 変更内容（一意制約・FK違反の 409/404 マッピング — Issue #5）
 
 - **修正は repository 層に限定**。`handler/response.go` は既に `domain.ErrConflict→409` / `ErrNotFound→404` を写像済みで、原因は一部 repo が `wrapConflict` を通していなかったこと（DBエラーが 500 露出）。handler / usecase の写像は正しいため触らない（層分離）。
