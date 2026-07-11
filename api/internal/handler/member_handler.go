@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"strconv"
 
 	"pmo-agent/api/internal/usecase"
 
@@ -59,8 +58,7 @@ func (h *MemberHandler) Assign(c *gin.Context) {
 		return
 	}
 	var req assignReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "アサインするユーザーを指定してください"})
+	if !bindJSON(c, &req, "アサインするユーザーを指定してください") {
 		return
 	}
 	start, end, derr := parseDates(req.StartDate, req.EndDate)
@@ -95,8 +93,7 @@ func (h *MemberHandler) Update(c *gin.Context) {
 		return
 	}
 	var req updateMemberReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "入力内容を確認してください"})
+	if !bindJSON(c, &req, "入力内容を確認してください") {
 		return
 	}
 	start, end, derr := parseDates(req.StartDate, req.EndDate)
@@ -138,10 +135,5 @@ func (h *MemberHandler) Delete(c *gin.Context) {
 
 // pathUserID は :userId パスパラメータを int で取り出す。不正なら 400 を返して false。
 func pathUserID(c *gin.Context) (int, bool) {
-	id, err := strconv.Atoi(c.Param("userId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ユーザーIDが不正です"})
-		return 0, false
-	}
-	return id, true
+	return pathParam(c, "userId", "ユーザーIDが不正です")
 }

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"strconv"
 
 	"pmo-agent/api/internal/domain"
 	"pmo-agent/api/internal/usecase"
@@ -45,8 +44,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 		Grade   string `json:"grade" binding:"required"`
 		RoleIDs []int  `json:"role_ids" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "入力内容を確認してください"})
+	if !bindJSON(c, &req, "入力内容を確認してください") {
 		return
 	}
 	user, link, err := h.uc.Create(c.Request.Context(), usecase.CreateInput{
@@ -73,8 +71,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 		IsActive *bool  `json:"is_active"`
 		RoleIDs  []int  `json:"role_ids" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "入力内容を確認してください"})
+	if !bindJSON(c, &req, "入力内容を確認してください") {
 		return
 	}
 	user, err := h.uc.Update(c.Request.Context(), id, usecase.UpdateInput{
@@ -117,10 +114,5 @@ func (h *UserHandler) ReissueLink(c *gin.Context) {
 
 // pathID は :id パスパラメータを int で取り出す。不正なら 400 を返して false。
 func pathID(c *gin.Context) (int, bool) {
-	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "IDが不正です"})
-		return 0, false
-	}
-	return id, true
+	return pathParam(c, "id", "IDが不正です")
 }

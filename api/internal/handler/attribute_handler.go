@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"strconv"
 
 	"pmo-agent/api/internal/usecase"
 
@@ -42,8 +41,7 @@ func (h *AttributeHandler) Assign(c *gin.Context) {
 		return
 	}
 	var req attributeReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "属性値を指定してください"})
+	if !bindJSON(c, &req, "属性値を指定してください") {
 		return
 	}
 	a, err := h.uc.Assign(c.Request.Context(), id, req.ValueID)
@@ -60,9 +58,8 @@ func (h *AttributeHandler) Delete(c *gin.Context) {
 	if !ok {
 		return
 	}
-	valueID, err := strconv.Atoi(c.Param("valueId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "値IDが不正です"})
+	valueID, ok := pathValueID(c)
+	if !ok {
 		return
 	}
 	if err := h.uc.Unassign(c.Request.Context(), id, valueID); err != nil {
