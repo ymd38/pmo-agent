@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 
 	"pmo-agent/api/internal/domain"
 
@@ -50,8 +51,21 @@ func (r *ProgramRepo) Update(ctx context.Context, p *domain.Program) error {
 		Updates(map[string]any{"name": p.Name, "description": p.Description}).Error
 }
 
+// Delete は配下にプロジェクトが存在する場合（FK RESTRICT）は 409、
+// 対象が存在しない場合は 404 を返す。
+// usecase 側でも配下チェックしているが、count 後の同時 INSERT（TOCTOU）に対する多層防御。
 func (r *ProgramRepo) Delete(ctx context.Context, id int) error {
-	return r.db.WithContext(ctx).Delete(&domain.Program{}, id).Error
+	res := r.db.WithContext(ctx).Delete(&domain.Program{}, id)
+	if res.Error != nil {
+		if isForeignKeyViolation(res.Error) {
+			return fmt.Errorf("%w: 配下にプロジェクトが存在するため削除できません", domain.ErrConflict)
+		}
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (r *ProgramRepo) MaxSeqNo(ctx context.Context, programType string, fiscalYear int) (int, error) {

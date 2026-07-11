@@ -49,7 +49,7 @@ func (r *AttributeRepo) Exists(ctx context.Context, projectID, valueID int) (boo
 }
 
 func (r *AttributeRepo) Assign(ctx context.Context, a *domain.AttributeAssignment) error {
-	return r.db.WithContext(ctx).Create(a).Error
+	return wrapConflict(r.db.WithContext(ctx).Create(a).Error)
 }
 
 func (r *AttributeRepo) Unassign(ctx context.Context, projectID, valueID int) error {

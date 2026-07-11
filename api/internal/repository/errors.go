@@ -12,6 +12,10 @@ import (
 // mysqlDuplicateEntry は MySQL の重複キーエラーコード（ER_DUP_ENTRY）。
 const mysqlDuplicateEntry = 1062
 
+// mysqlRowIsReferenced は親行を参照する子行が存在するため削除・更新を拒否した
+// FK RESTRICT のエラーコード（ER_ROW_IS_REFERENCED_2）。
+const mysqlRowIsReferenced = 1451
+
 // wrapNotFound は GORM の未検出エラーをドメインエラーへ写像する。
 func wrapNotFound(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -34,4 +38,11 @@ func wrapConflict(err error) error {
 		return domain.ErrConflict
 	}
 	return err
+}
+
+// isForeignKeyViolation は FK RESTRICT による削除・更新拒否（親行が参照されている）を判定する。
+// 呼び出し側は文脈に応じたメッセージを付けて domain.ErrConflict へ写像する。
+func isForeignKeyViolation(err error) bool {
+	var me *mysql.MySQLError
+	return errors.As(err, &me) && me.Number == mysqlRowIsReferenced
 }

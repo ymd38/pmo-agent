@@ -27,7 +27,7 @@ func (r *CategoryRepo) ListCategories(ctx context.Context, includeInactive bool)
 }
 
 func (r *CategoryRepo) CreateCategory(ctx context.Context, c *domain.Category) error {
-	return r.db.WithContext(ctx).Create(c).Error
+	return wrapConflict(r.db.WithContext(ctx).Create(c).Error)
 }
 
 func (r *CategoryRepo) UpdateCategory(ctx context.Context, c *domain.Category) error {
@@ -83,7 +83,7 @@ func (r *CategoryRepo) FindValueByID(ctx context.Context, id int) (*domain.Categ
 }
 
 func (r *CategoryRepo) CreateValue(ctx context.Context, v *domain.CategoryValue) error {
-	return r.db.WithContext(ctx).Create(v).Error
+	return wrapConflict(r.db.WithContext(ctx).Create(v).Error)
 }
 
 func (r *CategoryRepo) UpdateValue(ctx context.Context, v *domain.CategoryValue) error {
