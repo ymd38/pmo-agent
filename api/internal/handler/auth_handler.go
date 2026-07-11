@@ -30,8 +30,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		Email    string `json:"email" binding:"required,email"`
 		Password string `json:"password" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "メールアドレスとパスワードを入力してください"})
+	if !bindJSON(c, &req, "メールアドレスとパスワードを入力してください") {
 		return
 	}
 	user, toks, err := h.uc.Login(c.Request.Context(), req.Email, req.Password)
@@ -75,8 +74,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		CurrentPassword string `json:"current_password" binding:"required"`
 		NewPassword     string `json:"new_password" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "現在のパスワードと新しいパスワードを入力してください"})
+	if !bindJSON(c, &req, "現在のパスワードと新しいパスワードを入力してください") {
 		return
 	}
 	if err := h.uc.ChangePassword(c.Request.Context(), middleware.UserID(c), req.CurrentPassword, req.NewPassword); err != nil {
@@ -100,8 +98,7 @@ func (h *AuthHandler) SetPassword(c *gin.Context) {
 		Token    string `json:"token" binding:"required"`
 		Password string `json:"password" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "トークンとパスワードを入力してください"})
+	if !bindJSON(c, &req, "トークンとパスワードを入力してください") {
 		return
 	}
 	if err := h.uc.SetPassword(c.Request.Context(), req.Token, req.Password); err != nil {

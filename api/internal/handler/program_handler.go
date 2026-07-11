@@ -64,8 +64,7 @@ func (h *ProgramHandler) Create(c *gin.Context) {
 		Name        string `json:"name" binding:"required"`
 		Description string `json:"description"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "種別・会計年度・名称を入力してください"})
+	if !bindJSON(c, &req, "種別・会計年度・名称を入力してください") {
 		return
 	}
 	p, err := h.uc.Create(c.Request.Context(), usecase.CreateProgramInput{
@@ -91,8 +90,7 @@ func (h *ProgramHandler) Update(c *gin.Context) {
 		Name        string `json:"name" binding:"required"`
 		Description string `json:"description"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "名称を入力してください"})
+	if !bindJSON(c, &req, "名称を入力してください") {
 		return
 	}
 	p, err := h.uc.Update(c.Request.Context(), id, req.Name, req.Description)

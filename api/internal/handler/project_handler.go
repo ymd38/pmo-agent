@@ -70,8 +70,7 @@ func (h *ProjectHandler) CreateUnderProgram(c *gin.Context) {
 		return
 	}
 	var req projectReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "入力内容を確認してください"})
+	if !bindJSON(c, &req, "入力内容を確認してください") {
 		return
 	}
 	start, end, derr := parseDates(req.StartDate, req.EndDate)
@@ -104,8 +103,7 @@ func (h *ProjectHandler) Update(c *gin.Context) {
 		return
 	}
 	var req projectReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "入力内容を確認してください"})
+	if !bindJSON(c, &req, "入力内容を確認してください") {
 		return
 	}
 	start, end, derr := parseDates(req.StartDate, req.EndDate)

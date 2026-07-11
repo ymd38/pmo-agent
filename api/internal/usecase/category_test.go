@@ -14,17 +14,28 @@ import (
 // stubCategoryRepo は値の所属検証テスト用フェイク。
 // FindValueByID をサポートし、各ミューテーションが実際に呼ばれたか記録する。
 type stubCategoryRepo struct {
-	values        map[int]*domain.CategoryValue
-	deactivatedID int
-	reactivatedID int
-	updatedID     int
+	values          map[int]*domain.CategoryValue
+	categories      map[int]*domain.Category
+	deactivatedID   int
+	reactivatedID   int
+	updatedID       int
+	updatedCategory *domain.Category
 }
 
 func newStubCategoryRepo() *stubCategoryRepo {
-	return &stubCategoryRepo{values: map[int]*domain.CategoryValue{}}
+	return &stubCategoryRepo{values: map[int]*domain.CategoryValue{}, categories: map[int]*domain.Category{}}
 }
 
-func (s *stubCategoryRepo) add(v *domain.CategoryValue) { s.values[v.ID] = v }
+func (s *stubCategoryRepo) add(v *domain.CategoryValue)    { s.values[v.ID] = v }
+func (s *stubCategoryRepo) addCategory(c *domain.Category) { s.categories[c.ID] = c }
+
+func (s *stubCategoryRepo) FindCategoryByID(_ context.Context, id int) (*domain.Category, error) {
+	if c, ok := s.categories[id]; ok {
+		cp := *c
+		return &cp, nil
+	}
+	return nil, domain.ErrNotFound
+}
 
 func (s *stubCategoryRepo) FindValueByID(_ context.Context, id int) (*domain.CategoryValue, error) {
 	if v, ok := s.values[id]; ok {
@@ -54,9 +65,12 @@ func (s *stubCategoryRepo) ListCategories(_ context.Context, _ bool) ([]domain.C
 	return nil, nil
 }
 func (s *stubCategoryRepo) CreateCategory(_ context.Context, _ *domain.Category) error { return nil }
-func (s *stubCategoryRepo) UpdateCategory(_ context.Context, _ *domain.Category) error { return nil }
-func (s *stubCategoryRepo) DeactivateCategory(_ context.Context, _ int) error          { return nil }
-func (s *stubCategoryRepo) ReactivateCategory(_ context.Context, _ int) error          { return nil }
+func (s *stubCategoryRepo) UpdateCategory(_ context.Context, c *domain.Category) error {
+	s.updatedCategory = c
+	return nil
+}
+func (s *stubCategoryRepo) DeactivateCategory(_ context.Context, _ int) error { return nil }
+func (s *stubCategoryRepo) ReactivateCategory(_ context.Context, _ int) error { return nil }
 func (s *stubCategoryRepo) CreateValue(_ context.Context, _ *domain.CategoryValue) error {
 	return nil
 }
@@ -149,5 +163,47 @@ func TestCategoryUsecase_ValueMembership(t *testing.T) {
 				assert.Equal(t, valID, repo.reactivatedID)
 			})
 		}
+	})
+}
+
+// TestCategoryUsecase_UpdateCategory は UpdateCategory が FindCategoryByID 経由で
+// 対象を解決し（全件ロード+線形探索をやめた）、存在すれば name 以下を更新、
+// 存在しなければ ErrNotFound を返すことを確認する。code は不変。
+func TestCategoryUsecase_UpdateCategory(t *testing.T) {
+	t.Run("存在すれば更新しcodeは不変", func(t *testing.T) {
+		repo := newStubCategoryRepo()
+		repo.addCategory(&domain.Category{ID: 5, Code: "region", Name: "旧名称", SortOrder: 1})
+		uc := NewCategoryUsecase(repo)
+
+		got, err := uc.UpdateCategory(context.Background(), 5, CategoryInput{
+			Code: "IGNORED", Name: " 新名称 ", Description: "説明", IsRequired: true, SortOrder: 9,
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, "新名称", got.Name)
+		assert.Equal(t, "region", got.Code, "code は不変")
+		assert.True(t, got.IsRequired)
+		assert.Equal(t, 9, got.SortOrder)
+		require.NotNil(t, repo.updatedCategory)
+		assert.Equal(t, 5, repo.updatedCategory.ID)
+	})
+
+	t.Run("存在しなければ404", func(t *testing.T) {
+		repo := newStubCategoryRepo()
+		uc := NewCategoryUsecase(repo)
+
+		_, err := uc.UpdateCategory(context.Background(), 404, CategoryInput{Name: "x"})
+
+		assert.ErrorIs(t, err, domain.ErrNotFound)
+	})
+
+	t.Run("名称が空はバリデーションエラー", func(t *testing.T) {
+		repo := newStubCategoryRepo()
+		repo.addCategory(&domain.Category{ID: 5, Code: "region", Name: "旧名称"})
+		uc := NewCategoryUsecase(repo)
+
+		_, err := uc.UpdateCategory(context.Background(), 5, CategoryInput{Name: "  "})
+
+		assert.ErrorIs(t, err, domain.ErrValidation)
 	})
 }

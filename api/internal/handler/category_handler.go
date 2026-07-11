@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"strconv"
 
 	"pmo-agent/api/internal/usecase"
 
@@ -28,8 +27,7 @@ func (h *CategoryHandler) List(c *gin.Context) {
 
 func (h *CategoryHandler) Create(c *gin.Context) {
 	var req categoryReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "入力内容を確認してください"})
+	if !bindJSON(c, &req, "入力内容を確認してください") {
 		return
 	}
 	cat, err := h.uc.CreateCategory(c.Request.Context(), req.toInput())
@@ -46,8 +44,7 @@ func (h *CategoryHandler) Update(c *gin.Context) {
 		return
 	}
 	var req categoryReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "入力内容を確認してください"})
+	if !bindJSON(c, &req, "入力内容を確認してください") {
 		return
 	}
 	cat, err := h.uc.UpdateCategory(c.Request.Context(), id, req.toInput())
@@ -101,8 +98,7 @@ func (h *CategoryHandler) CreateValue(c *gin.Context) {
 		return
 	}
 	var req valueReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "入力内容を確認してください"})
+	if !bindJSON(c, &req, "入力内容を確認してください") {
 		return
 	}
 	v, err := h.uc.CreateValue(c.Request.Context(), id, req.toInput())
@@ -123,8 +119,7 @@ func (h *CategoryHandler) UpdateValue(c *gin.Context) {
 		return
 	}
 	var req valueReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "入力内容を確認してください"})
+	if !bindJSON(c, &req, "入力内容を確認してください") {
 		return
 	}
 	v, err := h.uc.UpdateValue(c.Request.Context(), id, valueID, req.toInput())
@@ -169,12 +164,7 @@ func (h *CategoryHandler) ReactivateValue(c *gin.Context) {
 
 // pathValueID は :valueId パスセグメントを解析する。不正なら 400 を返して false。
 func pathValueID(c *gin.Context) (int, bool) {
-	valueID, err := strconv.Atoi(c.Param("valueId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "値IDが不正です"})
-		return 0, false
-	}
-	return valueID, true
+	return pathParam(c, "valueId", "値IDが不正です")
 }
 
 type categoryReq struct {

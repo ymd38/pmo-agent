@@ -82,10 +82,12 @@ func (f *fakeUserRepo) RolesByUserID(_ context.Context, id int) ([]domain.Role, 
 }
 
 type fakeSetTokenRepo struct {
-	byHash     map[string]*domain.PasswordSetToken
-	used       map[int]bool
-	invalidate map[int]bool
-	seq        int
+	byHash       map[string]*domain.PasswordSetToken
+	used         map[int]bool
+	invalidate   map[int]bool
+	seq          int
+	deleteCutoff *time.Time // DeleteExpiredBefore に渡された cutoff（検証用）
+	deleteErr    error      // DeleteExpiredBefore の失敗注入用
 }
 
 func newFakeSetTokenRepo() *fakeSetTokenRepo {
@@ -113,6 +115,21 @@ func (f *fakeSetTokenRepo) InvalidateForUser(_ context.Context, userID int) erro
 	return nil
 }
 
+func (f *fakeSetTokenRepo) DeleteExpiredBefore(_ context.Context, cutoff time.Time) (int64, error) {
+	f.deleteCutoff = &cutoff
+	if f.deleteErr != nil {
+		return 0, f.deleteErr
+	}
+	var n int64
+	for h, t := range f.byHash {
+		if t.ExpiresAt.Before(cutoff) {
+			delete(f.byHash, h)
+			n++
+		}
+	}
+	return n, nil
+}
+
 // fakeRefreshRepo は DB のアトミックCASを mutex で模擬する。並行リプレイテスト用に
 // Rotate / Revoke は revoked 状態を検査してから更新し、1度しか成功しない。
 type fakeRefreshRepo struct {
@@ -122,7 +139,9 @@ type fakeRefreshRepo struct {
 	revoked      map[int]bool
 	revokedUser  map[int]bool
 	seq          int
-	revokeAllErr error // RevokeAllForUser の失敗注入用
+	revokeAllErr error      // RevokeAllForUser の失敗注入用
+	deleteCutoff *time.Time // DeleteExpiredBefore に渡された cutoff（検証用）
+	deleteErr    error      // DeleteExpiredBefore の失敗注入用
 }
 
 func newFakeRefreshRepo() *fakeRefreshRepo {
@@ -194,6 +213,24 @@ func (f *fakeRefreshRepo) Rotate(_ context.Context, oldID int, newTok *domain.Re
 	f.byHash[newTok.TokenHash] = newTok
 	f.byID[newTok.ID] = newTok
 	return nil
+}
+
+func (f *fakeRefreshRepo) DeleteExpiredBefore(_ context.Context, cutoff time.Time) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleteCutoff = &cutoff
+	if f.deleteErr != nil {
+		return 0, f.deleteErr
+	}
+	var n int64
+	for id, t := range f.byID {
+		if t.ExpiresAt.Before(cutoff) {
+			delete(f.byID, id)
+			delete(f.byHash, t.TokenHash)
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (f *fakeRefreshRepo) RevokeAllForUser(_ context.Context, userID int) error {

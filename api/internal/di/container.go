@@ -90,7 +90,7 @@ func provideAuthUsecase(
 	jwt usecase.AccessTokenIssuer,
 	tm usecase.TokenManager,
 ) *usecase.AuthUsecase {
-	return usecase.NewAuthUsecase(users, set, ref, h, jwt, tm, cfg.RefreshTokenTTL, cfg.SetTokenTTL, cfg.AppBaseURL)
+	return usecase.NewAuthUsecase(users, set, ref, h, jwt, tm, cfg.RefreshTokenTTL)
 }
 
 func provideUserUsecase(

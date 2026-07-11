@@ -55,13 +55,9 @@ func (uc *CategoryUsecase) CreateCategory(ctx context.Context, in CategoryInput)
 }
 
 func (uc *CategoryUsecase) UpdateCategory(ctx context.Context, id int, in CategoryInput) (*domain.Category, error) {
-	cats, err := uc.repo.ListCategories(ctx, true)
+	c, err := uc.repo.FindCategoryByID(ctx, id)
 	if err != nil {
 		return nil, err
-	}
-	c := findCategory(cats, id)
-	if c == nil {
-		return nil, domain.ErrNotFound
 	}
 	if strings.TrimSpace(in.Name) == "" {
 		return nil, fmt.Errorf("%w: 名称は必須です", domain.ErrValidation)
@@ -151,13 +147,4 @@ func (uc *CategoryUsecase) findValueInCategory(ctx context.Context, categoryID, 
 		return nil, domain.ErrNotFound
 	}
 	return v, nil
-}
-
-func findCategory(cats []domain.Category, id int) *domain.Category {
-	for i := range cats {
-		if cats[i].ID == id {
-			return &cats[i]
-		}
-	}
-	return nil
 }

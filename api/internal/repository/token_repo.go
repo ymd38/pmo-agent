@@ -43,6 +43,16 @@ func (r *PasswordSetTokenRepo) InvalidateForUser(ctx context.Context, userID int
 		Update("used_at", time.Now()).Error
 }
 
+// DeleteExpiredBefore は expires_at が cutoff より前の行を物理削除し、削除件数を返す。
+// テーブルの無限増加を防ぐためのクリーンアップ経路。削除条件は「期限切れ」に限定し、
+// cutoff に猶予期間を持たせて呼ぶこと（使用済みトークンでも期限内なら残す）。
+func (r *PasswordSetTokenRepo) DeleteExpiredBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).
+		Where("expires_at < ?", cutoff).
+		Delete(&domain.PasswordSetToken{})
+	return res.RowsAffected, res.Error
+}
+
 // --- リフレッシュトークン ---
 
 type RefreshTokenRepo struct {
@@ -102,4 +112,19 @@ func (r *RefreshTokenRepo) RevokeAllForUser(ctx context.Context, userID int) err
 	return r.db.WithContext(ctx).Model(&domain.RefreshToken{}).
 		Where("user_id = ? AND revoked_at IS NULL", userID).
 		Update("revoked_at", time.Now()).Error
+}
+
+// DeleteExpiredBefore は expires_at が cutoff より前の行を物理削除し、削除件数を返す。
+// テーブルの無限増加を防ぐためのクリーンアップ経路。
+//
+// 重要: 削除条件は「期限切れ（expires_at 超過）」に限定し、revoked_at では削除しない。
+// 失効直後の行を消すと再利用検知（失効済みトークンが FindByHash で見つかることに依存）が
+// 壊れ、盗まれた旧トークンのリプレイが ErrTokenReuse（チェーン全失効）ではなく
+// ErrTokenInvalid になってしまうため。cutoff に猶予期間を持たせて呼ぶことで、
+// 期限切れ直後のトークンも一定期間は再利用検知の対象として残す。
+func (r *RefreshTokenRepo) DeleteExpiredBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).
+		Where("expires_at < ?", cutoff).
+		Delete(&domain.RefreshToken{})
+	return res.RowsAffected, res.Error
 }

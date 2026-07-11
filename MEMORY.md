@@ -4,6 +4,19 @@
 
 ## 2026-07-11
 
+### 意思決定 / 変更内容（コードレビュー指摘のクリーンアップ — Issue #12）
+
+- **各項目を現行 main で再検証**（PR #13〜#21 で大幅変更済みのため）。対応 1〜6 / スキップ 7・8。挙動不変（項目6のみ新規クリーンアップ挙動）。
+- **項目6の設計判断（最重要）**: 「ローテーション時 DELETE」は**採用しない**。失効直後の行を消すと PR #16 の再利用検知（失効済みトークンが `FindByHash` で見つかることに依存）が壊れ、盗まれた旧トークンのリプレイが `ErrTokenReuse`（チェーン全失効）ではなく `ErrTokenInvalid` になりセキュリティ機能が黙って弱体化する。よって `DeleteExpiredBefore(cutoff)` を追加し**「期限切れ＋猶予経過」行の物理削除のみ**を行う（refresh_tokens / password_set_tokens 両方）。`AuthUsecase.CleanupExpiredTokens` が `cutoff = now - expiredTokenRetention(30日)` で両テーブルを掃除し、`main.go` 起動時に1回だけ呼ぶ（cron 等の凝った仕組みは KISS 違反のため作らない）。猶予30日は refresh TTL(7日)を十分上回り、期限切れ直後のトークンも一定期間は再利用検知の窓に残す。
+- **項目7はスキップ**: 書き込み後の再 `FindByID` は冗長ではなかった。GORM は `Updates` で `updated_at` を自動更新するため、DB 権威値を返す再取得をメモリ値に置換すると**レスポンスの `updated_at` が古くなる**（挙動変化）。IssueCode では branch_no/project_code/status の手動ミラーも必要でバグ源。「挙動不変」を最優先し、単一 PK ルックアップ削減（優先度低）より正しさを優先。
+- **項目8はスキップ**: RequireFunction の毎回DB解決はロール変更の即時反映のための意図的設計（Issue 自身が明記）。
+- **項目1**: `GetDetail` は取得済み配下 projects から `domain.AggregateProjects` でメモリ集計に変更（全プログラム2回 GROUP BY 全表スキャンの `AggregateByProgram` 呼び出しを廃止）。`List` は全件必要なので `AggregateByProgram` を継続利用。新規 repo メソッド不要（DRY）。
+- **項目2**: `FindCategoryByID` を repo/interface に追加し `UpdateCategory` の全件ロード+線形探索(`findCategory`)を解消。`UpdateValue` は PR #21 で既に `findValueInCategory` 経由のため対象外。
+- **項目3**: `AuthUsecase` の未使用フィールド `setTTL`/`baseURL`（と `NewAuthUsecase` 引数）を削除。grep で確認し AuthUsecase では代入のみ（`baseURL` の実利用は `UserUsecase` 側）。
+- **項目4**: 未使用 sentinel `ErrInactiveUser`/`ErrNotActivated`/`ErrForbidden` と `response.go` の対応 case を削除（どの usecase も返しておらず repo 全体 grep で確認）。403 写像はミドルウェアが自前で abort するため影響なし（YAGNI）。
+- **項目5**: `pathParam(c, name, msg)` / `bindJSON(c, dst, msg)` を `response.go` に追加。`pathID`/`pathValueID`/`pathUserID` を薄いラッパへ統一し、attribute_handler の生 Atoi も置換。ShouldBindJSON+400 の16箇所を `bindJSON` へ集約（文言は各所固有なので引数保持）。
+- **その他**: Issue #12 への方針コメント投稿は権限制限で不可だったため PR 本文に全方針を記載。`GOTOOLCHAIN=go1.25.12 go test -race ./...` / `golangci-lint run ./...` 0 issues。項目6は `CleanupExpiredTokens` の単体テスト（期限切れのみ削除・猶予内は残す・両テーブル同一cutoff・失敗伝播）、項目1は `AggregateProjects` の domain テスト、項目2は `UpdateCategory` テストを追加。
+
 ### 意思決定 / 変更内容（カテゴリ値ミューテーションの所属検証 — Issue #6）
 
 - **原因**: `handler` の `DeleteValue`/`ReactivateValue` が `:valueId` のみ読み `:id`(カテゴリID) を無視して usecase を呼んでいた。usecase 側 `DeactivateValue`/`ReactivateValue` も `valueID` 単独引数で所属検証なし。`DELETE /categories/999/values/7` が値7の実所属に関わらず 200 で無効化される URL 契約破綻。`UpdateValue` のみ所属チェック済みで不整合だった。

@@ -68,11 +68,9 @@ func (uc *ProgramUsecase) GetDetail(ctx context.Context, id int) (*ProgramDetail
 	if err != nil {
 		return nil, err
 	}
-	aggs, err := uc.projects.AggregateByProgram(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &ProgramDetail{Program: *p, Aggregate: aggOrEmpty(aggs, id), Projects: projects}, nil
+	// 集計は取得済みの配下 projects からメモリ上で算出する。
+	// 全プログラムを2回 GROUP BY 全表スキャンする AggregateByProgram は詳細表示では過剰。
+	return &ProgramDetail{Program: *p, Aggregate: domain.AggregateProjects(projects), Projects: projects}, nil
 }
 
 // ListProjectsScoped はプログラム配下プロジェクトのうち、スコープ内のものだけを返す
