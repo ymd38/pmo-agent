@@ -182,8 +182,11 @@ func (uc *AuthUsecase) SetPassword(ctx context.Context, tokenPlain, newPassword 
 	if err := uc.setToks.MarkUsed(ctx, tok.ID); err != nil {
 		return fmt.Errorf("usecase.SetPassword markUsed: %w", err)
 	}
-	// セキュリティ: 既存セッションを失効させる。
-	_ = uc.refToks.RevokeAllForUser(ctx, tok.UserID)
+	// セキュリティ: 既存セッションを失効させる。失敗はセキュリティ制御の silent failure
+	// になるためエラーとして伝播する。
+	if err := uc.refToks.RevokeAllForUser(ctx, tok.UserID); err != nil {
+		return fmt.Errorf("usecase.SetPassword revokeAll: %w", err)
+	}
 	return nil
 }
 
@@ -206,7 +209,16 @@ func (uc *AuthUsecase) ChangePassword(ctx context.Context, userID int, current, 
 	if err != nil {
 		return fmt.Errorf("usecase.ChangePassword hash: %w", err)
 	}
-	return uc.users.UpdatePasswordHash(ctx, userID, hash)
+	if err := uc.users.UpdatePasswordHash(ctx, userID, hash); err != nil {
+		return fmt.Errorf("usecase.ChangePassword update: %w", err)
+	}
+	// セキュリティ: パスワード変更後は既存セッション（盗用された可能性のある
+	// リフレッシュトークンを含む）を全失効させる。失敗はセキュリティ制御の
+	// silent failure になるためエラーとして伝播する。
+	if err := uc.refToks.RevokeAllForUser(ctx, userID); err != nil {
+		return fmt.Errorf("usecase.ChangePassword revokeAll: %w", err)
+	}
+	return nil
 }
 
 // prepareTokens はアクセストークンと新しいリフレッシュトークン（平文＋永続化前レコード）を
